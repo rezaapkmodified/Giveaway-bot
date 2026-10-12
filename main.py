@@ -1,5 +1,5 @@
 """
-Telegram Giveaway Bot v5.2 Ultimate — In-Bot Channel Template Editor & Fixed SQLite
+Telegram Giveaway Bot v5.4 Ultimate — Auto-Cleanup Extra Messages & Jalali Dates
 pip install -U aiogram
 """
 import asyncio
@@ -35,7 +35,6 @@ from aiogram.types import (
 BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_YOUR_TOKEN_HERE")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "0").split(",") if x.strip()}
 DB_PATH = os.getenv("DB_PATH", "giveaway_v5.db")
-REMIND_BEFORE = 3600   # ثانیه (۱ ساعت)
 TICK = 15              # ثانیه
 DM_DELAY = 0.06        # ثانیه بین DM
 
@@ -44,7 +43,51 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("giveaway")
 
 # =====================================================
-#  ⚙️ متون پیش‌فرض کانال (قابل ویرایش از داخل ربات)
+#  ⚙️ مبدل تاریخ میلادی به شمسی
+# =====================================================
+def gregorian_to_jalali(gy, gm, gd):
+    g_days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    
+    gy2 = gy + 1 if gm > 2 else gy
+    days = (gy2 - 1) * 365 + (gy2 - 1) // 4 - (gy2 - 1) // 100 + (gy2 - 1) // 400
+    for i in range(gm - 1):
+        days += g_days_in_month[i]
+    days += gd
+    
+    jy = gy - 621
+    gy2 -= 1
+    j_np = gy2 // 4 - gy2 // 100 + gy2 // 400 - (1600 // 4 - 1600 // 100 + 1600 // 400)
+    days -= j_np
+    
+    if days < 0:
+        gy -= 1
+        days = (gy2 - 1) * 365 + (gy2 - 1) // 4 - (gy2 - 1) // 100 + (gy2 - 1) // 400
+        for i in range(gm - 1):
+            days += g_days_in_month[i]
+        days += gd
+        days -= j_np
+        jy = gy - 621
+    
+    sal_a = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+    kab = 1 if (jy % 4 == 0 and jy % 100 != 0) or (jy % 400 == 0) else 0
+    if kab and gm > 2:
+        days += 1
+        
+    jm = 1
+    for i, s in enumerate(sal_a):
+        if days >= s:
+            jm = i + 1
+            
+    jd = days - sal_a[jm - 1] + 1
+    return jy, jm, jd
+
+def fmt_jalali(ts: int) -> str:
+    t_struct = time.localtime(ts)
+    jy, jm, jd = gregorian_to_jalali(t_struct.tm_year, t_struct.tm_mon, t_struct.tm_mday)
+    return f"{jy:04d}/{jm:02d}/{jd:02d} · {t_struct.tm_hour:02d}:{t_struct.tm_min:02d}"
+
+# =====================================================
+#  ⚙️ متون پیش‌فرض کانال
 # =====================================================
 DEFAULT_TEMPLATES = {
     "post_header": "🎉 <b>#قرعه_کشی | {title}</b>\n🏛 ────────────────────",
@@ -57,7 +100,7 @@ DEFAULT_TEMPLATES = {
     "post_min_invites": "👫 <b>شرط ورود:</b> حداقل {invites} دعوت (هر دعوت = ۱ شانس اضافه 🎟)",
     "post_footer": "🏛 ────────────────────\n👇 <b>جهت شرکت و دریافت لینک اختصاصی روی دکمه زیر بزنید:</b>",
     "start_notice": "🚀 <b>قرعه‌کشی «{title}» رسماً شروع شد!</b>\n\nهم‌اکنون می‌توانید با کلیک روی دکمه پست بالا وارد شوید.",
-    "reminder_notice": "⏰ <b>فقط ۱ ساعت تا پایان قرعه‌کشی «{title}» باقیست!</b>\n\n🔥 فرصت را از دست ندهید! اگر هنوز شرکت نکرده‌اید یا می‌خواهید شانس خود را بیشتر کنید روی دکمه زیر بزنید 👇",
+    "reminder_notice": "⏰ <b>فقط زمان کوتاهی تا پایان قرعه‌کشی «{title}» باقیست!</b>\n\n🔥 فرصت را از دست ندهید! اگر هنوز شرکت نکرده‌اید یا می‌خواهید شانس خود را بیشتر کنید روی دکمه زیر بزنید 👇",
     "reminder_btn_text": "🎁 شرکت در قرعه‌کشی / افزودن شانس",
     "end_notice": "🔒 <b>مهلت شرکت در قرعه‌کشی «{title}» به پایان رسید!</b>\n\n⏳ هم‌اکنون قرعه‌کشی و بررسی استعلام اعضا در حال انجام است...",
     "live_draw_start": "🎲 <b>گردونه شانس در حال چرخیدن است...</b>\n\n⏳ لطفاً شکیبا باشید...",
@@ -75,12 +118,12 @@ TEMPLATE_LABELS = {
     "post_single_prize": "🎁 متن تک جایزه‌ای",
     "post_multi_prize_title": "🎁 تیتر چند جایزه‌ای",
     "post_winners_count": "👥 تعداد برندگان",
-    "post_ends_at": "⏰ زمان پایان",
+    "post_ends_at": "⏰ زمان پایان (شمسی)",
     "post_channels": "📢 کانال‌های حامی",
     "post_min_invites": "👫 شرط حداقل دعوت",
     "post_footer": "👇 پاورقی پست قرعه‌کشی",
     "start_notice": "🚀 پیام شروع رسمی",
-    "reminder_notice": "⏰ پیام یادآوری (۱ ساعت مانده)",
+    "reminder_notice": "⏰ پیام یادآوری پایان",
     "reminder_btn_text": "🔘 دکمه پیام یادآوری",
     "end_notice": "🔒 پیام اتمام مهلت شرکت",
     "live_draw_start": "🎲 شروع لایو قرعه‌کشی",
@@ -174,6 +217,11 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'pending',
             created_at INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS temp_messages (
+            giveaway_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            PRIMARY KEY (giveaway_id, message_id)
+        );
         CREATE TABLE IF NOT EXISTS gw_channels (
             giveaway_id INTEGER NOT NULL,
             channel TEXT NOT NULL,
@@ -213,6 +261,26 @@ def init_db():
         """)
         for key, val in DEFAULT_TEMPLATES.items():
             c.execute("INSERT OR IGNORE INTO templates (key, val) VALUES (?, ?)", (key, val))
+
+
+def save_temp_msg(gid: int, msg_id: int):
+    with db(write=True) as c:
+        c.execute("INSERT OR IGNORE INTO temp_messages (giveaway_id, message_id) VALUES (?, ?)", (gid, msg_id))
+
+
+async def cleanup_temp_msgs(bot: Bot, gid: int, channel_id: str):
+    with db() as c:
+        rows = c.execute("SELECT message_id FROM temp_messages WHERE giveaway_id=?", (gid,)).fetchall()
+    
+    for r in rows:
+        try:
+            await bot.delete_message(chat_id=channel_id, message_id=r["message_id"])
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            log.warning("cleanup error msg_id=%s: %s", r["message_id"], e)
+
+    with db(write=True) as c:
+        c.execute("DELETE FROM temp_messages WHERE giveaway_id=?", (gid,))
 
 
 def get_template(key: str) -> str:
@@ -332,10 +400,6 @@ def t(uid: int, key: str, **kw) -> str:
         return s
 
 
-def fmt_time(ts: int) -> str:
-    return time.strftime("%Y-%m-%d · %H:%M", time.localtime(ts))
-
-
 def post_text(g) -> str:
     lines = [get_template("post_header").format(title=html.escape(g['title']))]
     prizes = [p for p in (g["prizes"] or "").split("|") if p.strip()] or ["—"]
@@ -348,7 +412,7 @@ def post_text(g) -> str:
             lines.append(get_template("post_multi_prize_item").format(rank=i, prize=html.escape(p)))
 
     lines.append(get_template("post_winners_count").format(count=g['winners_count']))
-    lines.append(get_template("post_ends_at").format(ends_at=fmt_time(g['ends_at'])))
+    lines.append(get_template("post_ends_at").format(ends_at=fmt_jalali(g['ends_at'])))
     
     chans = gw_channels(g["id"])
     if chans:
@@ -519,8 +583,10 @@ async def finish_giveaway(bot: Bot, gid: int):
 
         title = html.escape(g["title"])
 
+        # ۱) ارسال پیام پایان
         try:
-            await bot.send_message(g["post_channel"], get_template("end_notice").format(title=title))
+            m_end = await bot.send_message(g["post_channel"], get_template("end_notice").format(title=title))
+            save_temp_msg(gid, m_end.message_id)
         except TelegramBadRequest as e:
             log.warning("End notice error: %s", e)
 
@@ -532,6 +598,7 @@ async def finish_giveaway(bot: Bot, gid: int):
         if users:
             try:
                 live_msg = await bot.send_message(g["post_channel"], get_template("live_draw_start"))
+                save_temp_msg(gid, live_msg.message_id)
                 for _ in range(3):
                     await asyncio.sleep(1)
                     sample = random.choice(users)
@@ -584,18 +651,14 @@ async def finish_giveaway(bot: Bot, gid: int):
             lines.append(get_template("results_footer").format(digest=digest))
             text = "".join(lines)
 
-        sent_ok = False
-        if live_msg:
-            try:
-                await bot.edit_message_text(text, chat_id=g["post_channel"], message_id=live_msg.message_id)
-                sent_ok = True
-            except TelegramBadRequest as e:
-                log.warning("result edit failed: %s", e)
-        if not sent_ok:
-            try:
-                await bot.send_message(g["post_channel"], text)
-            except TelegramBadRequest as e:
-                log.error("result send failed: %s", e)
+        # پاکسازی پیام‌های موقت کانال
+        await cleanup_temp_msgs(bot, gid, g["post_channel"])
+
+        # ارسال پیام نهایی نتایج برندگان
+        try:
+            await bot.send_message(g["post_channel"], text)
+        except TelegramBadRequest as e:
+            log.error("result send failed: %s", e)
 
         if g["sponsor_url"]:
             try:
@@ -641,13 +704,15 @@ async def cancel_giveaway(bot: Bot, gid: int):
         if cur.rowcount == 0:
             return
     g = get_gw(gid)
-    if not g or not g["message_id"] or g["status"] == "pending":
+    if not g:
         return
-    try:
-        await bot.edit_message_text(f"🚫 <b>{html.escape(g['title'])}</b>\n\nاین قرعه‌کشی توسط مدیریت لغو شد.", chat_id=g["post_channel"], message_id=g["message_id"])
-        await bot.edit_message_reply_markup(chat_id=g["post_channel"], message_id=g["message_id"], reply_markup=None)
-    except TelegramBadRequest as e:
-        log.warning("cancel edit: %s", e)
+    await cleanup_temp_msgs(bot, gid, g["post_channel"])
+    if g["message_id"] and g["status"] != "pending":
+        try:
+            await bot.edit_message_text(f"🚫 <b>{html.escape(g['title'])}</b>\n\nاین قرعه‌کشی توسط مدیریت لغو شد.", chat_id=g["post_channel"], message_id=g["message_id"])
+            await bot.edit_message_reply_markup(chat_id=g["post_channel"], message_id=g["message_id"], reply_markup=None)
+        except TelegramBadRequest as e:
+            log.warning("cancel edit: %s", e)
 
 
 # ---------------- Watcher ----------------
@@ -666,7 +731,8 @@ async def watcher(bot: Bot):
                     continue
                 try:
                     sent = await send_post_msg(bot, g["post_channel"], g, 0)
-                    await bot.send_message(g["post_channel"], get_template("start_notice").format(title=html.escape(g['title'])))
+                    m_start = await bot.send_message(g["post_channel"], get_template("start_notice").format(title=html.escape(g['title'])))
+                    save_temp_msg(gid, m_start.message_id)
                     with db(write=True) as c:
                         c.execute("UPDATE giveaways SET status='active', message_id=? WHERE id=? AND status='pending'", (sent.message_id, gid))
                     log.info("scheduled publish #%s", gid)
@@ -688,11 +754,15 @@ async def watcher(bot: Bot):
                     log.error("fix broken #%s: %s", gid, e)
 
             with db() as c:
-                rows = c.execute("SELECT id, ends_at FROM giveaways WHERE status='active'").fetchall()
+                rows = c.execute("SELECT id, ends_at, start_at FROM giveaways WHERE status='active'").fetchall()
             for r in rows:
                 gid = r["id"]
+                total_duration = r["ends_at"] - r["start_at"]
                 delta = r["ends_at"] - now
-                if 0 < delta <= REMIND_BEFORE and gid not in REMINDED:
+                
+                remind_threshold = min(3600, total_duration // 2) if total_duration > 120 else 10
+
+                if 0 < delta <= remind_threshold and gid not in REMINDED:
                     REMINDED.add(gid)
                     spawn(send_reminders(bot, gid))
                 if delta <= 0:
@@ -728,28 +798,14 @@ async def send_reminders(bot: Bot, gid: int):
     url = f"https://t.me/{me.username}?start=g_{gid}"
 
     try:
-        await bot.send_message(
+        m_rem = await bot.send_message(
             g["post_channel"],
             get_template("reminder_notice").format(title=html.escape(g['title'])),
             reply_markup=kb([btn(get_template("reminder_btn_text"), url=url)])
         )
+        save_temp_msg(gid, m_rem.message_id)
     except TelegramBadRequest as e:
         log.warning("Channel reminder error: %s", e)
-
-    try:
-        users = eligible(gid)
-        for u in users:
-            try:
-                await bot.send_message(
-                    u["user_id"],
-                    f"⏰ <b>زمان رو به پایان است!</b>\n\nفقط ۱ ساعت تا پایان قرعه‌کشی «{html.escape(g['title'])}» زمان داری.\n🎟 با دعوت از دوستانت، شانس برنده شدنت رو چند برابر کن!")
-            except (TelegramBadRequest, TelegramForbiddenError):
-                pass
-            except Exception as e:
-                log.warning("reminder %s: %s", u["user_id"], e)
-            await asyncio.sleep(DM_DELAY)
-    except Exception:
-        log.exception("send_reminders")
 
 
 # =====================================================
@@ -905,7 +961,7 @@ def gw_info(g) -> str:
         f"🤖 <b>کپچا:</b> {'روشن' if g['captcha'] else 'خاموش'}",
         f"📱 <b>تأیید شماره:</b> {'روشن' if g['req_phone'] else 'خاموش'}",
         f"📣 <b>اسپانسر:</b> {g['sponsor_text'] or '—'}",
-        f"⏰ <b>پایان:</b> {fmt_time(g['ends_at'])}",
+        f"⏰ <b>پایان:</b> {fmt_jalali(g['ends_at'])}",
         f"📊 <b>ورودی‌ها:</b> کل: {n_entrants(g['id'])} | واجد شرایط: {len(eligible(g['id']))}",
         f"📌 <b>وضعیت:</b> <code>{g['status']}</code>",
     ]
@@ -944,7 +1000,6 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
         await state.clear()
         return await show(cb, "❌ عملیات لغو شد.\n\n" + PANEL_TEXT, panel_kb())
 
-    # --- مدیریت متون کانال ---
     if act == "tpl":
         buttons = []
         for k, label in TEMPLATE_LABELS.items():
@@ -1108,7 +1163,6 @@ async def process_extend(m: Message, state: FSMContext):
     await m.answer(f"✅ زمان پایان قرعه‌کشی #{gid} به میزان {mins} دقیقه تمدید شد.", reply_markup=panel_kb())
 
 
-# ---------------- FSM جدید ساخت قرعه‌کشی ----------------
 class NewGW(StatesGroup):
     title = State()
     banner = State()
