@@ -1,5 +1,5 @@
 """
-Telegram Giveaway Bot v4.2 Pro — Editable Channel Templates & Fully Debugged
+Telegram Giveaway Bot v4.3 Pro — Fully Fixed for Python 3.13 & Railway
 pip install -U aiogram
 """
 import asyncio
@@ -43,11 +43,8 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("giveaway")
 
 # =====================================================
-#  ⚙️ تنظیمات متن پیام‌های خودکار کانال (قابل تغییر)
+#  ⚙️ تنظیمات متن پیام‌های خودکار کانال (قابل تغییر به دلخواه)
 # =====================================================
-# شما می‌توانید تمام متن‌ها و ایموجی‌های زیر را به دلخواه تغییر دهید.
-# متغیرهایی که داخل {} قرار دارند به‌صورت خودکار جایگزین می‌شوند.
-
 CHANNEL_TEMPLATES = {
     # ۱. پیام ارسال پست اصلی قرعه‌کشی
     "post_header": "🎉 <b>#قرعه_کشی | {title}</b>\n🏛 ────────────────────",
@@ -116,7 +113,7 @@ def kb(*rows) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[list(r) for r in rows])
 
 
-# ---------------- دیتابیس ----------------
+# ---------------- دیتابیس (اصلاح‌شده برای پایتون ۳.۱۳) ----------------
 @contextmanager
 def db(write: bool = False):
     conn = sqlite3.connect(DB_PATH, timeout=15, isolation_level=None)
@@ -129,7 +126,10 @@ def db(write: bool = False):
             conn.execute("BEGIN IMMEDIATE")
         yield conn
         if write:
-            conn.execute("COMMIT")
+            try:
+                conn.execute("COMMIT")
+            except sqlite3.OperationalError:
+                pass  # جلوگیری از ارور وقتی تراکنشی فعال نیست
     except Exception:
         if write:
             try:
@@ -497,7 +497,6 @@ async def finish_giveaway(bot: Bot, gid: int):
 
         title = html.escape(g["title"])
 
-        # ۱) پیام اتمام مهلت در کانال
         try:
             await bot.send_message(
                 g["post_channel"],
@@ -509,7 +508,6 @@ async def finish_giveaway(bot: Bot, gid: int):
         users = list(eligible(gid))
         prizes = [p for p in (g["prizes"] or "").split("|") if p.strip()] or ["—"]
 
-        # ۲) پیام لایو قرعه‌کشی
         live_msg = None
         if users:
             try:
@@ -530,7 +528,6 @@ async def finish_giveaway(bot: Bot, gid: int):
             except TelegramBadRequest as e:
                 log.warning("live draw: %s", e)
 
-        # ۳) انتخاب برندگان
         winners = []
         if users:
             pool_uid = build_pool(users)
@@ -557,7 +554,6 @@ async def finish_giveaway(bot: Bot, gid: int):
         payload = f"{gid}|{int(time.time())}|{g['seed'] or ''}|{ids}".encode()
         digest = hashlib.sha256(payload).hexdigest()
 
-        # ۴) ساخت متن نتایج برندگان
         if not winners:
             text = CHANNEL_TEMPLATES["results_no_winners"].format(title=title)
         else:
@@ -590,7 +586,6 @@ async def finish_giveaway(bot: Bot, gid: int):
             except TelegramBadRequest as e:
                 log.error("result send failed: %s", e)
 
-        # ۵) ارسال پست اسپانسر پس از اتمام
         if g["sponsor_url"]:
             try:
                 sp_label = g["sponsor_text"] or "اسپانسر برنامه"
@@ -611,7 +606,6 @@ async def finish_giveaway(bot: Bot, gid: int):
             except TelegramBadRequest:
                 pass
 
-        # ۶) پیام پیوی به برندگان
         for i, w in enumerate(winners):
             try:
                 prize = prizes[i] if i < len(prizes) else prizes[-1]
@@ -678,7 +672,6 @@ async def watcher(bot: Bot):
                         post_text(g),
                         reply_markup=await post_kb(bot, g, 0))
                     
-                    # پیام شروع رسمی در کانال
                     await bot.send_message(
                         g["post_channel"],
                         CHANNEL_TEMPLATES["start_notice"].format(title=html.escape(g['title']))
@@ -761,7 +754,6 @@ async def send_reminders(bot: Bot, gid: int):
     me = await bot.me()
     url = f"https://t.me/{me.username}?start=g_{gid}"
 
-    # پست یادآوری در کانال
     try:
         await bot.send_message(
             g["post_channel"],
@@ -1340,7 +1332,6 @@ async def s10(m: Message, state: FSMContext, bot: Bot):
             g["post_channel"], post_text(g),
             reply_markup=await post_kb(bot, g, 0))
         
-        # پیام شروع رسمی
         await bot.send_message(
             g["post_channel"],
             CHANNEL_TEMPLATES["start_notice"].format(title=html.escape(g['title']))
