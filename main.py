@@ -1,5 +1,5 @@
 """
-Telegram Giveaway Bot v4.3 Pro — Fully Fixed for Python 3.13 & Railway
+Telegram Giveaway Bot v5.0 Ultimate — Full Featured & Auto Delivery
 pip install -U aiogram
 """
 import asyncio
@@ -27,13 +27,14 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     BufferedInputFile, CallbackQuery, InlineKeyboardButton,
-    InlineKeyboardMarkup, Message,
+    InlineKeyboardMarkup, Message, ReplyKeyboardMarkup, KeyboardButton,
+    ReplyKeyboardRemove
 )
 
 # ---------------- تنظیمات اصلی ----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_YOUR_TOKEN_HERE")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "0").split(",") if x.strip()}
-DB_PATH = os.getenv("DB_PATH", "giveaway_v4.db")
+DB_PATH = os.getenv("DB_PATH", "giveaway_v5.db")
 REMIND_BEFORE = 3600   # ثانیه (۱ ساعت)
 TICK = 15              # ثانیه
 DM_DELAY = 0.06        # ثانیه بین DM
@@ -43,10 +44,9 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("giveaway")
 
 # =====================================================
-#  ⚙️ تنظیمات متن پیام‌های خودکار کانال (قابل تغییر به دلخواه)
+#  ⚙️ تنظیمات متون کانال
 # =====================================================
 CHANNEL_TEMPLATES = {
-    # ۱. پیام ارسال پست اصلی قرعه‌کشی
     "post_header": "🎉 <b>#قرعه_کشی | {title}</b>\n🏛 ────────────────────",
     "post_single_prize": "🎁 <b>جایزه:</b> {prize}",
     "post_multi_prize_title": "🎁 <b>لیست جوایز:</b>",
@@ -57,27 +57,16 @@ CHANNEL_TEMPLATES = {
     "post_min_invites": "👫 <b>شرط ورود:</b> حداقل {invites} دعوت (هر دعوت = ۱ شانس اضافه 🎟)",
     "post_footer": "🏛 ────────────────────\n👇 <b>جهت شرکت و دریافت لینک اختصاصی روی دکمه زیر بزنید:</b>",
 
-    # ۲. پیام شروع رسمی (زیر پست اصلی)
     "start_notice": "🚀 <b>قرعه‌کشی «{title}» رسماً شروع شد!</b>\n\nهم‌اکنون می‌توانید با کلیک روی دکمه پست بالا وارد شوید.",
-
-    # ۳. پیام یادآوری ۱ ساعت مانده به پایان
     "reminder_notice": "⏰ <b>فقط ۱ ساعت تا پایان قرعه‌کشی «{title}» باقیست!</b>\n\n🔥 فرصت را از دست ندهید! اگر هنوز شرکت نکرده‌اید یا می‌خواهید شانس خود را بیشتر کنید روی دکمه زیر بزنید 👇",
     "reminder_btn_text": "🎁 شرکت در قرعه‌کشی / افزودن شانس",
-
-    # ۴. پیام اتمام مهلت شرکت
     "end_notice": "🔒 <b>مهلت شرکت در قرعه‌کشی «{title}» به پایان رسید!</b>\n\n⏳ هم‌اکنون قرعه‌کشی و بررسی استعلام اعضا در حال انجام است...",
-
-    # ۵. پیام لایو قرعه‌کشی (گردونه شانس)
     "live_draw_start": "🎲 <b>گردونه شانس در حال چرخیدن است...</b>\n\n⏳ لطفاً شکیبا باشید...",
     "live_draw_step": "🎲 <b>در حال قرعه‌کشی: {title}</b>\n\n🎰 انتخاب از میان واجدین شرایط: <b>{name}</b>",
-
-    # ۶. پیام اعلام نتایج برندگان
     "results_header": "🏆 <b>نتایج رسمی قرعه‌کشی: {title}</b>\n👑 ════════════════════\n👥 <b>کل واجدین شرایط:</b> {total_users} نفر\n",
     "results_winner_item": "🥇 <b>مقام {rank}:</b> {prize}\n└ 👤 برنده: <a href='tg://user?id={user_id}'>{username}</a> ({invites} دعوت)\n",
     "results_footer": "👑 ════════════════════\n🔐 <b>کد شفافیت (SHA256):</b>\n<code>{digest}</code>\n\n✨ <i>تبریک به برندگان عزیز! جهت دریافت جایزه به پیوی مراجعه کنید.</i>",
     "results_no_winners": "🎁 <b>قرعه‌کشی: {title}</b>\n\n😕 متأسفانه برنده واجد شرایطی یافت نشد.",
-
-    # ۷. پیام پست اختصاصی اسپانسر پس از پایان
     "sponsor_notice": "📢 <b>با تشکر ویژه از اسپانسر محترم این قرعه‌کشی:</b>\n\n🔹 <b>{sponsor_name}</b>\nجهت مشاهده خدمات و حمایت از اسپانسر روی دکمه زیر کلیک کنید 👇",
     "sponsor_btn_text": "🔗 ورود به {sponsor_name}",
 }
@@ -104,7 +93,6 @@ def spawn(coro) -> asyncio.Task:
     return t
 
 
-# ---------------- دکمه ----------------
 def btn(text: str, **kw) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, **kw)
 
@@ -113,7 +101,7 @@ def kb(*rows) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[list(r) for r in rows])
 
 
-# ---------------- دیتابیس (اصلاح‌شده برای پایتون ۳.۱۳) ----------------
+# ---------------- دیتابیس ----------------
 @contextmanager
 def db(write: bool = False):
     conn = sqlite3.connect(DB_PATH, timeout=15, isolation_level=None)
@@ -129,7 +117,7 @@ def db(write: bool = False):
             try:
                 conn.execute("COMMIT")
             except sqlite3.OperationalError:
-                pass  # جلوگیری از ارور وقتی تراکنشی فعال نیست
+                pass
     except Exception:
         if write:
             try:
@@ -148,6 +136,8 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             prizes TEXT NOT NULL,
+            prize_codes TEXT,
+            banner_url TEXT,
             winners_count INTEGER NOT NULL,
             post_channel TEXT NOT NULL,
             message_id INTEGER,
@@ -157,6 +147,7 @@ def init_db():
             sponsor_text TEXT,
             sponsor_url TEXT,
             captcha INTEGER NOT NULL DEFAULT 1,
+            req_phone INTEGER NOT NULL DEFAULT 0,
             seed TEXT,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at INTEGER NOT NULL DEFAULT 0
@@ -172,6 +163,7 @@ def init_db():
             username TEXT,
             full_name TEXT,
             captcha_ok INTEGER NOT NULL DEFAULT 0,
+            phone_ok INTEGER NOT NULL DEFAULT 0,
             joined_at INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (giveaway_id, user_id)
         );
@@ -185,6 +177,7 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
+            phone_number TEXT,
             lang TEXT NOT NULL DEFAULT 'fa',
             first_seen INTEGER NOT NULL DEFAULT 0
         );
@@ -222,9 +215,10 @@ def eligible(gid: int) -> list:
     if not g:
         return []
     with db() as c:
-        return c.execute("""
+        phone_clause = "AND e.phone_ok = 1" if g["req_phone"] else ""
+        return c.execute(f"""
             SELECT e.* FROM entrants e
-            WHERE e.giveaway_id = ?1 AND e.captcha_ok = 1
+            WHERE e.giveaway_id = ?1 AND e.captcha_ok = 1 {phone_clause}
               AND (
                 SELECT COUNT(*) FROM referrals r
                 WHERE r.giveaway_id = e.giveaway_id
@@ -275,13 +269,15 @@ def ensure_user(uid: int):
             (uid, int(time.time())))
 
 
-# ---------------- i18n Texts ----------------
+# ---------------- i18n ----------------
 T = {
     "fa": {
         "must_join": "📌 <b>جهت ثبت‌نام در قرعه‌کشی، ابتدا در کانال‌های زیر عضو شوید:</b>\n\nپس از عضویت، روی دکمه بررسی کلیک کنید.",
         "joined": "🔄 بررسی عضویت",
         "captcha": "🛡 <b>تأیید هویت و امنیت</b>\n\nبرای جلوگیری از ورود ربات‌ها، لطفاً روی دکمه زیر بزنید:",
         "captcha_btn": "🤖 من ربات نیستم",
+        "phone_req": "📱 <b>احراز هویت شماره تلفن</b>\n\nبرای شرکت در این قرعه‌کشی، لطفاً با کلیک روی دکمه زیر شماره خود را به اشتراک بگذارید:",
+        "phone_btn": "📱 ارسال شماره تلفن جهت احراز هویت",
         "finished": "🚫 این قرعه‌کشی به پایان رسیده یا معتبر نمی‌باشد.",
         "captcha_ok": "✅ هویت شما با موفقیت تأیید شد!",
         "no_change": "هنوز تغییری ایجاد نشده است 🙂",
@@ -293,6 +289,8 @@ T = {
         "joined": "🔄 Verify Membership",
         "captcha": "🛡 <b>Security Verification</b>\n\nPlease confirm you are human:",
         "captcha_btn": "🤖 I'm not a bot",
+        "phone_req": "📱 <b>Phone Verification</b>\n\nPlease share your contact to participate:",
+        "phone_btn": "📱 Share Contact",
         "finished": "🚫 This giveaway has ended.",
         "captcha_ok": "✅ Verification successful!",
         "no_change": "No changes detected 🙂",
@@ -310,7 +308,6 @@ def t(uid: int, key: str, **kw) -> str:
         return s
 
 
-# ---------------- توابع ساخت پیام بر اساس قالب‌ها ----------------
 def fmt_time(ts: int) -> str:
     return time.strftime("%Y-%m-%d · %H:%M", time.localtime(ts))
 
@@ -349,6 +346,14 @@ async def post_kb(bot: Bot, g, n: int) -> InlineKeyboardMarkup:
     return kb(*rows)
 
 
+async def send_post_msg(bot: Bot, chat_id: str, g, n: int):
+    text = post_text(g)
+    markup = await post_kb(bot, g, n)
+    if g["banner_url"]:
+        return await bot.send_photo(chat_id, photo=g["banner_url"], caption=text, reply_markup=markup)
+    return await bot.send_message(chat_id, text, reply_markup=markup)
+
+
 # ---------------- عضویت ----------------
 async def missing_channels(bot: Bot, gid: int, uid: int) -> list[str]:
     miss = []
@@ -384,34 +389,45 @@ async def notify_inviter(bot: Bot, g, inviter_id: int):
         log.warning("notify_inviter(%s): %s", inviter_id, e)
 
 
-# ---------------- صفحه‌ی شرکت شیک در ربات ----------------
+# ---------------- کارت شرکت در ربات ----------------
 async def entry_screen(bot: Bot, gid: int, user):
     g = get_gw(gid)
     uid = user.id
     if not g or g["status"] != "active" or g["ends_at"] <= time.time():
-        return t(uid, "finished"), None
+        return t(uid, "finished"), None, None
 
     with db() as c:
         row = c.execute(
-            "SELECT captcha_ok FROM entrants WHERE giveaway_id=? AND user_id=?",
+            "SELECT captcha_ok, phone_ok FROM entrants WHERE giveaway_id=? AND user_id=?",
             (gid, uid)).fetchone()
-    if g["captcha"] and (not row or not row["captcha_ok"]):
-        return t(uid, "captcha"), kb(
-            [btn(t(uid, "captcha_btn"), callback_data=f"cap:{gid}")])
 
+    # ۱. بررسی کپچا
+    if g["captcha"] and (not row or not row["captcha_ok"]):
+        return t(uid, "captcha"), kb([btn(t(uid, "captcha_btn"), callback_data=f"cap:{gid}")]), None
+
+    # ۲. بررسی شماره تلفن (در صورت فعال بودن)
+    if g["req_phone"] and (not row or not row["phone_ok"]):
+        reply_kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text=t(uid, "phone_btn"), request_contact=True)]],
+            resize_keyboard=True, one_time_keyboard=True
+        )
+        return t(uid, "phone_req"), None, reply_kb
+
+    # ۳. بررسی عضویت در کانال‌ها
     miss = await missing_channels(bot, gid, uid)
     if miss:
         rows = [[btn(f"📢 عضویت در {ch}", url=f"https://t.me/{ch.lstrip('@')}")] for ch in miss]
         rows.append([btn(t(uid, "joined"), callback_data=f"chk:{gid}")])
-        return t(uid, "must_join"), kb(*rows)
+        return t(uid, "must_join"), kb(*rows), None
 
+    # ۴. ثبت نهایی ورودی
     newly_verified = False
     inviter_id = None
     with db(write=True) as c:
         cur = c.execute(
             "INSERT OR IGNORE INTO entrants "
-            "(giveaway_id,user_id,username,full_name,captcha_ok,joined_at) "
-            "VALUES (?,?,?,?,1,?)",
+            "(giveaway_id,user_id,username,full_name,captcha_ok,phone_ok,joined_at) "
+            "VALUES (?,?,?,?,1,1,?)",
             (gid, uid, user.username, user.full_name, int(time.time())))
         new_entrant = cur.rowcount > 0
 
@@ -452,9 +468,9 @@ async def entry_screen(bot: Bot, gid: int, user):
         status_icon = "✅" if have >= need else "⏳"
         card.append(f"👫 <b>دعوت‌های تأییدشده:</b> {have} از {need} {status_icon}")
         if have < need:
-            card.append(f"⚠️ <i>برای ورود به قرعه‌کشی باید {need - have} نفر دیگر را دعوت کنید.</i>")
+            card.append(f"⚠️ <i>برای ورود باید {need - have} نفر دیگر را دعوت کنید.</i>")
         else:
-            card.append("🎉 <i>شرط دعوت برآورده شد! شانس شما ثبت گردید.</i>")
+            card.append("🎉 <i>شرط دعوت برآورده شد!</i>")
 
     card += [
         "📋 ════════════════",
@@ -468,10 +484,10 @@ async def entry_screen(bot: Bot, gid: int, user):
         buttons.append([btn("🔄 بروزرسانی وضعیت", callback_data=f"chk:{gid}")])
     buttons.append([btn("🏆 جدول ۱۰ دعوت‌کننده برتر", callback_data=f"top:{gid}")])
 
-    return "\n".join(card), kb(*buttons)
+    return "\n".join(card), kb(*buttons), None
 
 
-# ---------------- قرعه‌کشی و اعلانات کانال ----------------
+# ---------------- قرعه‌کشی و ارسال کدهای تحویل ----------------
 def build_pool(users: list) -> list:
     pool = []
     for u in users:
@@ -507,6 +523,7 @@ async def finish_giveaway(bot: Bot, gid: int):
 
         users = list(eligible(gid))
         prizes = [p for p in (g["prizes"] or "").split("|") if p.strip()] or ["—"]
+        prize_codes = [c.strip() for c in (g["prize_codes"] or "").split("|") if c.strip()]
 
         live_msg = None
         if users:
@@ -606,15 +623,20 @@ async def finish_giveaway(bot: Bot, gid: int):
             except TelegramBadRequest:
                 pass
 
+        # ارسال پیام تبریک و کدهای جایزه خودکار به برندگان
         for i, w in enumerate(winners):
             try:
                 prize = prizes[i] if i < len(prizes) else prizes[-1]
+                code_text = ""
+                if i < len(prize_codes):
+                    code_text = f"\n🔑 <b>کد جایزه اختصاصی شما:</b> <code>{html.escape(prize_codes[i])}</code>"
+
                 await bot.send_message(
                     w["user_id"],
                     f"🎉 <b>تبریک فوق‌العاده! شما برنده شدید!</b> 🏆\n\n"
-                    f"🎁 <b>جایزه شما:</b> {html.escape(prize)}\n"
+                    f"🎁 <b>جایزه شما:</b> {html.escape(prize)}{code_text}\n"
                     f"مقام: رتبه {i+1} در قرعه‌کشی «{title}»\n\n"
-                    f"جهت هماهنگی تحویل جایزه منتظر پیام ادمین باشید.")
+                    f"با تشکر از شرکت شما!")
                 await asyncio.sleep(DM_DELAY)
             except (TelegramBadRequest, TelegramForbiddenError):
                 pass
@@ -667,10 +689,7 @@ async def watcher(bot: Bot):
                 if not g:
                     continue
                 try:
-                    sent = await bot.send_message(
-                        g["post_channel"],
-                        post_text(g),
-                        reply_markup=await post_kb(bot, g, 0))
+                    sent = await send_post_msg(bot, g["post_channel"], g, 0)
                     
                     await bot.send_message(
                         g["post_channel"],
@@ -697,10 +716,7 @@ async def watcher(bot: Bot):
                 if not g:
                     continue
                 try:
-                    sent = await bot.send_message(
-                        g["post_channel"],
-                        post_text(g),
-                        reply_markup=await post_kb(bot, g, 0))
+                    sent = await send_post_msg(bot, g["post_channel"], g, 0)
                     with db(write=True) as c:
                         c.execute(
                             "UPDATE giveaways SET message_id=? "
@@ -813,23 +829,24 @@ async def start(m: Message, command: CommandObject, bot: Bot):
                         "VALUES (?,?,?,?)",
                         (gid, inviter, m.from_user.id, int(time.time())))
 
-        text, markup = await entry_screen(bot, gid, m.from_user)
-        return await m.answer(text, reply_markup=markup)
+        text, markup, reply_kb = await entry_screen(bot, gid, m.from_user)
+        return await m.answer(text, reply_markup=reply_kb or markup)
 
     if is_admin(m.from_user.id):
         return await m.answer(PANEL_TEXT, reply_markup=panel_kb())
     await m.answer(t(m.from_user.id, "welcome"))
 
 
-@user_router.message(Command("lang"))
-async def lang_cmd(m: Message, command: CommandObject):
-    ensure_user(m.from_user.id)
-    arg = (command.args or "").strip().lower()
-    if arg in ("fa", "en"):
-        set_lang(m.from_user.id, arg)
-        await m.answer(f"✅ Language: {arg}")
+@user_router.message(F.contact)
+async def contact_handler(m: Message):
+    if m.contact and m.contact.user_id == m.from_user.id:
+        phone = m.contact.phone_number
+        with db(write=True) as c:
+            c.execute("UPDATE users SET phone_number=? WHERE user_id=?", (phone, m.from_user.id))
+            c.execute("UPDATE entrants SET phone_ok=1 WHERE user_id=?", (m.from_user.id,))
+        await m.answer("✅ شماره تلفن شما با موفقیت تأیید شد!", reply_markup=ReplyKeyboardRemove())
     else:
-        await m.answer("Usage: /lang fa | /lang en")
+        await m.answer("❌ لطفاً شماره تلفن متعلق به همین حساب کاربری را ارسال کنید.")
 
 
 @user_router.callback_query(F.data.startswith("cap:"))
@@ -850,9 +867,12 @@ async def cap_cb(cb: CallbackQuery, bot: Bot):
             "UPDATE entrants SET captcha_ok=1 "
             "WHERE giveaway_id=? AND user_id=?",
             (gid, cb.from_user.id))
-    text, markup = await entry_screen(bot, gid, cb.from_user)
+    text, markup, reply_kb = await entry_screen(bot, gid, cb.from_user)
     try:
-        await cb.message.edit_text(text, reply_markup=markup)
+        if reply_kb:
+            await cb.message.answer(text, reply_markup=reply_kb)
+        else:
+            await cb.message.edit_text(text, reply_markup=markup)
     except TelegramBadRequest:
         pass
     await cb.answer(t(cb.from_user.id, "captcha_ok"))
@@ -864,9 +884,12 @@ async def chk(cb: CallbackQuery, bot: Bot):
         gid = int(cb.data.split(":")[1])
     except (ValueError, IndexError):
         return await cb.answer("bad")
-    text, markup = await entry_screen(bot, gid, cb.from_user)
+    text, markup, reply_kb = await entry_screen(bot, gid, cb.from_user)
     try:
-        await cb.message.edit_text(text, reply_markup=markup)
+        if reply_kb:
+            await cb.message.answer(text, reply_markup=reply_kb)
+        else:
+            await cb.message.edit_text(text, reply_markup=markup)
         await cb.answer()
     except TelegramBadRequest:
         await cb.answer(t(cb.from_user.id, "no_change"))
@@ -908,13 +931,14 @@ async def top_cb(cb: CallbackQuery):
 # =====================================================
 #                       ادمین
 # =====================================================
-PANEL_TEXT = "🎛 <b>پنل مدیریت و کنترل قرعه‌کشی‌ها</b>"
+PANEL_TEXT = "🎛 <b>پنل مدیریت و کنترل پیشرفته قرعه‌کشی‌ها</b>"
 
 
 def panel_kb():
     return kb(
         [btn("➕ ساخت قرعه‌کشی جدید", callback_data="adm:new")],
         [btn("📋 لیست قرعه‌کشی‌های فعال", callback_data="adm:list")],
+        [btn("📢 همگانی (Broadcast)", callback_data="adm:bc")],
         [btn("📊 آمار و گزارش کل", callback_data="adm:stats")],
     )
 
@@ -938,80 +962,31 @@ def gw_info(g) -> str:
         "⚙️ ════════════════════",
         f"🏆 <b>جوایز:</b> {html.escape(g['prizes'])}",
         f"👥 <b>تعداد برنده:</b> {g['winners_count']} نفر",
+        f"🖼 <b>بنر:</b> {'دارد' if g['banner_url'] else 'ندارد'}",
         f"📢 <b>کانال‌ها:</b> {chans}",
         f"👫 <b>حداقل دعوت:</b> {g['min_invites']} نفر",
         f"🤖 <b>کپچا:</b> {'روشن' if g['captcha'] else 'خاموش'}",
+        f"📱 <b>تأیید شماره:</b> {'روشن' if g['req_phone'] else 'خاموش'}",
         f"📣 <b>اسپانسر:</b> {g['sponsor_text'] or '—'}",
         f"⏰ <b>پایان:</b> {fmt_time(g['ends_at'])}",
         f"📊 <b>ورودی‌ها:</b> کل: {n_entrants(g['id'])} | واجد شرایط: {len(eligible(g['id']))}",
         f"📌 <b>وضعیت:</b> <code>{g['status']}</code>",
     ]
-    if g["seed"]:
-        parts.append(f"🔐 <b>Seed:</b> <code>{g['seed']}</code>")
     return "\n".join(parts)
+
+
+class BroadcastFSM(StatesGroup):
+    msg = State()
+
+
+class ExtendFSM(StatesGroup):
+    minutes = State()
 
 
 @admin_router.message(Command("panel"))
 async def panel_cmd(m: Message, state: FSMContext):
     await state.clear()
     await m.answer(PANEL_TEXT, reply_markup=panel_kb())
-
-
-@admin_router.message(Command("top"))
-async def top_cmd(m: Message, command: CommandObject):
-    if not command.args or not command.args.isdigit():
-        return await m.answer("Usage: /top <giveaway_id>")
-    gid = int(command.args)
-    rows = leaderboard(gid, 20)
-    with db() as c:
-        lines = []
-        for i, r in enumerate(rows, 1):
-            u = c.execute(
-                "SELECT username, full_name FROM entrants "
-                "WHERE giveaway_id=? AND user_id=?",
-                (gid, r["inviter_id"])).fetchone()
-            if u and u["username"]:
-                name = f"@{u['username']}"
-            elif u and u["full_name"]:
-                name = u["full_name"]
-            else:
-                name = "—"
-            lines.append(f"{i}. {name} — {r['c']}")
-    await m.answer("🏆 Top:\n" + ("\n".join(lines) or "—"))
-
-
-@admin_router.message(Command("export"))
-async def export_cmd(m: Message, command: CommandObject):
-    if not command.args or not command.args.isdigit():
-        return await m.answer("Usage: /export <giveaway_id>")
-    gid = int(command.args)
-    g = get_gw(gid)
-    if not g:
-        return await m.answer("پیدا نشد.")
-    data = build_csv(gid, g)
-    await m.answer_document(
-        BufferedInputFile(data, filename=f"giveaway_{gid}.csv"))
-
-
-def build_csv(gid: int, g) -> bytes:
-    with db() as c:
-        rows = c.execute("""
-            SELECT e.user_id, e.username, e.full_name, e.captcha_ok, e.joined_at,
-                   (SELECT COUNT(*) FROM referrals r
-                    WHERE r.giveaway_id=e.giveaway_id
-                      AND r.inviter_id=e.user_id
-                      AND r.verified=1) AS invites
-            FROM entrants e WHERE e.giveaway_id=?
-            ORDER BY invites DESC""", (gid,)).fetchall()
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["user_id", "username", "full_name", "captcha_ok",
-                "joined_at", "invites", "eligible"])
-    for r in rows:
-        el = 1 if (r["captcha_ok"] and r["invites"] >= g["min_invites"]) else 0
-        w.writerow([r["user_id"], r["username"] or "", r["full_name"] or "",
-                    r["captcha_ok"], r["joined_at"], r["invites"], el])
-    return buf.getvalue().encode("utf-8-sig")
 
 
 @admin_router.callback_query(F.data.startswith("adm:"))
@@ -1027,6 +1002,10 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
         await state.clear()
         return await show(cb, "❌ عملیات لغو شد.\n\n" + PANEL_TEXT, panel_kb())
 
+    if act == "bc":
+        await state.set_state(BroadcastFSM.msg)
+        return await show(cb, "📢 <b>پیام همگانی خود را ارسال یا ریپلای کنید:</b>", ABORT_KB)
+
     if act == "new":
         await state.set_state(NewGW.title)
         return await show(cb, "📝 <b>عنوان قرعه‌کشی را وارد کنید:</b>", ABORT_KB)
@@ -1034,21 +1013,15 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
     if act == "stats":
         with db() as c:
             n_gw = c.execute("SELECT COUNT(*) AS n FROM giveaways").fetchone()["n"]
-            n_act = c.execute("SELECT COUNT(*) AS n FROM giveaways "
-                              "WHERE status='active'").fetchone()["n"]
-            n_pen = c.execute("SELECT COUNT(*) AS n FROM giveaways "
-                              "WHERE status='pending'").fetchone()["n"]
-            n_fin = c.execute("SELECT COUNT(*) AS n FROM giveaways "
-                              "WHERE status='finished'").fetchone()["n"]
+            n_act = c.execute("SELECT COUNT(*) AS n FROM giveaways WHERE status='active'").fetchone()["n"]
+            n_fin = c.execute("SELECT COUNT(*) AS n FROM giveaways WHERE status='finished'").fetchone()["n"]
             n_u = c.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
-            n_r = c.execute("SELECT COUNT(*) AS n FROM referrals "
-                            "WHERE verified=1").fetchone()["n"]
+            n_r = c.execute("SELECT COUNT(*) AS n FROM referrals WHERE verified=1").fetchone()["n"]
         return await show(
             cb,
             f"📊 <b>آمار کلی سیستم</b>\n\n"
             f"🎁 کل قرعه‌کشی‌ها: {n_gw}\n"
             f"🟢 فعال: {n_act}\n"
-            f"🟡 زمان‌بندی‌شده: {n_pen}\n"
             f"🔵 به پایان رسیده: {n_fin}\n"
             f"👥 کل کاربران ربات: {n_u}\n"
             f"👫 کل دعوت‌های موفق: {n_r}",
@@ -1082,12 +1055,18 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
     if act == "view":
         rows = [
             [btn("🎲 اجرا و قرعه‌کشی فوری", callback_data=f"adm:ask:draw:{gid}")],
+            [btn("⏰ تمدید زمان پایان", callback_data=f"adm:ext:{gid}")],
             [btn("🗑 لغو کامل قرعه‌کشی", callback_data=f"adm:ask:cancel:{gid}")],
             [btn("🏆 لیدربورد دعوت‌ها", callback_data=f"adm:lb:{gid}")],
             [btn("📥 دانلود خروجی CSV", callback_data=f"adm:csv:{gid}")],
             [btn("🔙 بازگشت به لیست", callback_data="adm:list")],
         ]
         return await show(cb, gw_info(g), kb(*rows))
+
+    if act == "ext":
+        await state.update_data(ext_gid=gid)
+        await state.set_state(ExtendFSM.minutes)
+        return await show(cb, "⏰ <b>چند دقیقه می‌خواهید به زمان پایان اضافه کنید؟</b>", ABORT_KB)
 
     if act == "lb":
         rows = leaderboard(gid, 15)
@@ -1113,20 +1092,11 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
             cb, "🏆 <b>لیدربورد دعوت‌کنندگان</b>\n\n" + "\n".join(lines),
             kb([btn("🔙 بازگشت", callback_data=f"adm:view:{gid}")]))
 
-    if act == "csv":
-        data = build_csv(gid, g)
-        await cb.message.answer_document(
-            BufferedInputFile(data, filename=f"giveaway_{gid}.csv"))
-        return await cb.answer()
-
     if act == "ask":
         if len(p) < 4:
             return await show(cb, "داده نامعتبر.", BACK_HOME)
         what = p[2]
-        if what == "draw":
-            text = "آیا اطمینان دارید که می‌خواهید همین الان قرعه‌کشی انجام شده و برندگان در کانال اعلام شوند؟"
-        else:
-            text = "آیا از لغو این قرعه‌کشی اطمینان دارید؟ (غیرقابل بازگشت)"
+        text = "آیا اطمینان دارید که می‌خواهید قرعه‌کشی انجام شود؟" if what == "draw" else "آیا از لغو این قرعه‌کشی اطمینان دارید؟"
         return await show(cb, text, kb([
             btn("✅ بله، انجام شود", callback_data=f"adm:do:{what}:{gid}"),
             btn("↩️ انصراف", callback_data=f"adm:view:{gid}"),
@@ -1138,15 +1108,48 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
         what = p[2]
         if what == "draw":
             spawn(finish_giveaway(bot, gid))
-            return await show(cb, "⏳ قرعه‌کشی در حال انجام و ارسال به کانال است...", BACK_HOME)
+            return await show(cb, "⏳ قرعه‌کشی در حال انجام است...", BACK_HOME)
         await cancel_giveaway(bot, gid)
         return await show(cb, "🚫 قرعه‌کشی لغو گردید.", BACK_HOME)
 
 
-# ---------------- FSM ----------------
+@admin_router.message(BroadcastFSM.msg)
+async def process_broadcast(m: Message, state: FSMContext, bot: Bot):
+    await state.clear()
+    with db() as c:
+        uids = [r["user_id"] for r in c.execute("SELECT user_id FROM users").fetchall()]
+    
+    count = 0
+    for uid in uids:
+        try:
+            await m.copy_to(chat_id=uid)
+            count += 1
+            await asyncio.sleep(DM_DELAY)
+        except Exception:
+            pass
+    await m.answer(f"✅ پیام همگانی با موفقیت به {count} کاربر ارسال شد.", reply_markup=panel_kb())
+
+
+@admin_router.message(ExtendFSM.minutes)
+async def process_extend(m: Message, state: FSMContext):
+    if not (m.text and m.text.isdigit()):
+        return await m.answer("عدد بفرستید.")
+    data = await state.get_data()
+    gid = data["ext_gid"]
+    mins = int(m.text)
+    
+    with db(write=True) as c:
+        c.execute("UPDATE giveaways SET ends_at = ends_at + ? WHERE id=?", (mins * 60, gid))
+    await state.clear()
+    await m.answer(f"✅ زمان پایان قرعه‌کشی #{gid} به میزان {mins} دقیقه تمدید شد.", reply_markup=panel_kb())
+
+
+# ---------------- FSM جدید ساخت قرعه‌کشی ----------------
 class NewGW(StatesGroup):
     title = State()
+    banner = State()
     prizes = State()
+    codes = State()
     winners = State()
     start_at = State()
     minutes = State()
@@ -1155,6 +1158,7 @@ class NewGW(StatesGroup):
     invites = State()
     sponsor = State()
     captcha = State()
+    phone = State()
 
 
 async def bot_is_admin(bot: Bot, ch: str) -> bool:
@@ -1180,20 +1184,40 @@ async def safe_answer(m: Message, text: str, **kw):
 async def s1(m: Message, state: FSMContext):
     title = (m.text or "").strip()
     if not title or len(title) > 200:
-        return await safe_answer(m, "عنوان باید ۱ تا ۲۰۰ کاراکتر باشد.",
-                                  reply_markup=ABORT_KB)
+        return await safe_answer(m, "عنوان باید ۱ تا ۲۰۰ کاراکتر باشد.", reply_markup=ABORT_KB)
     await state.update_data(title=title)
+    await state.set_state(NewGW.banner)
+    await safe_answer(m, "🖼 <b>بنر تصویری:</b>\nعکس ارسال کنید، یا لینک مستقیم عکس بفرستید، یا عدد - را برای بدون عکس ارسال کنید:", reply_markup=ABORT_KB)
+
+
+@admin_router.message(NewGW.banner)
+async def s_banner(m: Message, state: FSMContext):
+    banner_url = None
+    if m.photo:
+        banner_url = m.photo[-1].file_id
+    elif m.text and m.text.strip() != "-":
+        banner_url = m.text.strip()
+    
+    await state.update_data(banner_url=banner_url)
     await state.set_state(NewGW.prizes)
-    await safe_answer(m, "🎁 <b>جوایز را با علامت | جدا کنید:</b>\n"
-                          "مثال: اکانت پرمیوم|گوشی هوشمند|کد تخفیف", reply_markup=ABORT_KB)
+    await safe_answer(m, "🎁 <b>جوایز را با علامت | جدا کنید:</b>\nمثال: کد اکانت|گوشی|تخفیف", reply_markup=ABORT_KB)
 
 
 @admin_router.message(NewGW.prizes)
 async def s2(m: Message, state: FSMContext):
     prizes = (m.text or "").strip()
-    if not prizes or len(prizes) > 500:
+    if not prizes:
         return await safe_answer(m, "متن جوایز نامعتبر است.", reply_markup=ABORT_KB)
     await state.update_data(prizes=prizes)
+    await state.set_state(NewGW.codes)
+    await safe_answer(m, "🔑 <b>کدهای جایزه جهت ارسال خودکار به برندگان (با | جدا کنید):</b>\nاگر ندارد عدد - بفرستید.\nمثال: CODE1|CODE2|CODE3", reply_markup=ABORT_KB)
+
+
+@admin_router.message(NewGW.codes)
+async def s_codes(m: Message, state: FSMContext):
+    text = (m.text or "").strip()
+    prize_codes = None if text == "-" else text
+    await state.update_data(prize_codes=prize_codes)
     await state.set_state(NewGW.winners)
     await safe_answer(m, "👥 <b>تعداد برندگان؟ (عدد بین ۱ تا ۱۰۰):</b>", reply_markup=ABORT_KB)
 
@@ -1201,49 +1225,38 @@ async def s2(m: Message, state: FSMContext):
 @admin_router.message(NewGW.winners)
 async def s3(m: Message, state: FSMContext):
     if not (m.text and m.text.isdigit() and 0 < int(m.text) <= 100):
-        return await safe_answer(m, "لطفاً عددی بین ۱ تا ۱۰۰ وارد کنید.", reply_markup=ABORT_KB)
+        return await safe_answer(m, "عدد بین ۱ تا ۱۰۰ وارد کنید.", reply_markup=ABORT_KB)
     await state.update_data(winners=int(m.text))
     await state.set_state(NewGW.start_at)
-    await safe_answer(m, "⏳ <b>زمان شروع ارسال پست:</b>\nعدد 0 برای ارسال فوری، یا تعداد دقیقه تا ارسال پست زمان‌بندی‌شده را بزنید:",
-                       reply_markup=ABORT_KB)
+    await safe_answer(m, "⏳ <b>زمان شروع ارسال پست (به دقیقه، 0 = ارسال فوری):</b>", reply_markup=ABORT_KB)
 
 
 @admin_router.message(NewGW.start_at)
 async def s4(m: Message, state: FSMContext):
     if not (m.text and m.text.isdigit()):
-        return await safe_answer(m, "لطفاً عدد وارد کنید.", reply_markup=ABORT_KB)
-    n = int(m.text)
-    if n > 60 * 24 * 30:
-        return await safe_answer(m, "حداکثر ۳۰ روز.", reply_markup=ABORT_KB)
-    await state.update_data(start_after=n)
+        return await safe_answer(m, "عدد وارد کنید.", reply_markup=ABORT_KB)
+    await state.update_data(start_after=int(m.text))
     await state.set_state(NewGW.minutes)
-    await safe_answer(m, "⏰ <b>مدت زمان قرعه‌کشی (به دقیقه):</b>\nاز لحظه شروع، چند دقیقه بعد قرعه‌کشی به پایان برسد؟",
-                       reply_markup=ABORT_KB)
+    await safe_answer(m, "⏰ <b>مدت زمان قرعه‌کشی (به دقیقه):</b>", reply_markup=ABORT_KB)
 
 
 @admin_router.message(NewGW.minutes)
 async def s5(m: Message, state: FSMContext):
     if not (m.text and m.text.isdigit() and 0 < int(m.text) <= 60 * 24 * 90):
-        return await safe_answer(m, "عدد بین ۱ دقیقه تا ۹۰ روز.",
-                                  reply_markup=ABORT_KB)
+        return await safe_answer(m, "عدد معتبر وارد کنید.", reply_markup=ABORT_KB)
     await state.update_data(minutes=int(m.text))
     await state.set_state(NewGW.channel)
-    await safe_answer(m, "📢 <b>آیدی کانال پست قرعه‌کشی (مثلاً @MyChannel):</b>\nربات باید در این کانال ادمین باشد.",
-                       reply_markup=ABORT_KB)
+    await safe_answer(m, "📢 <b>آیدی کانال پست قرعه‌کشی (مثلاً @MyChannel):</b>", reply_markup=ABORT_KB)
 
 
 @admin_router.message(NewGW.channel)
 async def s6(m: Message, state: FSMContext, bot: Bot):
     ch = (m.text or "").strip().lower()
-    if not ch.startswith("@") or len(ch) < 2:
-        return await safe_answer(m, "آیدی باید با @ شروع شود.", reply_markup=ABORT_KB)
-    if not await bot_is_admin(bot, ch):
-        return await safe_answer(m, f"ربات در کانال {ch} دسترسی ادمین ندارد.",
-                                  reply_markup=ABORT_KB)
+    if not ch.startswith("@") or len(ch) < 2 or not await bot_is_admin(bot, ch):
+        return await safe_answer(m, "ربات در این کانال ادمین نیست یا آیدی نامعتبر است.", reply_markup=ABORT_KB)
     await state.update_data(channel=ch)
     await state.set_state(NewGW.extra)
-    await safe_answer(m, "📢 <b>کانال‌های اجباری برای عضویت (با فاصله یا خط بعدی):</b>\nاگر ندارد عدد - بفرستید.",
-                       reply_markup=ABORT_KB)
+    await safe_answer(m, "📢 <b>کانال‌های اجباری اضافی (با فاصله یا -):</b>", reply_markup=ABORT_KB)
 
 
 @admin_router.message(NewGW.extra)
@@ -1252,25 +1265,21 @@ async def s7(m: Message, state: FSMContext, bot: Bot):
     extras = []
     if text != "-":
         extras = [x.lower() for x in re.split(r"[\s,،]+", text) if x]
-        bad = [x for x in extras
-               if not x.startswith("@") or not await bot_is_admin(bot, x)]
+        bad = [x for x in extras if not x.startswith("@") or not await bot_is_admin(bot, x)]
         if bad:
-            return await safe_answer(m, "ربات در کانال‌های زیر ادمین نیست:\n" + "\n".join(bad),
-                                      reply_markup=ABORT_KB)
+            return await safe_answer(m, "ربات در کانال‌های زیر ادمین نیست:\n" + "\n".join(bad), reply_markup=ABORT_KB)
     await state.update_data(extra=extras)
     await state.set_state(NewGW.invites)
-    await safe_answer(m, "👫 <b>حداقل تعداد دعوت لازم (0 = بدون شرط دعوت):</b>", reply_markup=ABORT_KB)
+    await safe_answer(m, "👫 <b>حداقل تعداد دعوت لازم (0 = بدون شرط):</b>", reply_markup=ABORT_KB)
 
 
 @admin_router.message(NewGW.invites)
 async def s8(m: Message, state: FSMContext):
     if not (m.text and m.text.isdigit() and int(m.text) <= 1000):
-        return await safe_answer(m, "عدد بفرستید (۰ تا ۱۰۰۰).",
-                                  reply_markup=ABORT_KB)
+        return await safe_answer(m, "عدد معتبر بفرستید.", reply_markup=ABORT_KB)
     await state.update_data(invites=int(m.text))
     await state.set_state(NewGW.sponsor)
-    await safe_answer(m, "📣 <b>اطلاعات اسپانسر: «عنوان|لینک»</b>\nاگر ندارد - بفرستید.\nمثال: کانال ما|https://t.me/example",
-                       reply_markup=ABORT_KB)
+    await safe_answer(m, "📣 <b>اطلاعات اسپانسر «عنوان|لینک» یا -:</b>", reply_markup=ABORT_KB)
 
 
 @admin_router.message(NewGW.sponsor)
@@ -1279,21 +1288,26 @@ async def s9(m: Message, state: FSMContext):
     sp_text = sp_url = None
     if text != "-":
         if "|" not in text:
-            return await safe_answer(m, "فرمت درست: عنوان|لینک", reply_markup=ABORT_KB)
+            return await safe_answer(m, "فرمت: عنوان|لینک", reply_markup=ABORT_KB)
         sp_text, sp_url = [x.strip() for x in text.split("|", 1)]
-        if not sp_url.startswith(("http://", "https://", "tg://")):
-            return await safe_answer(m, "لینک معتبر نیست.", reply_markup=ABORT_KB)
     await state.update_data(sponsor_text=sp_text, sponsor_url=sp_url)
     await state.set_state(NewGW.captcha)
-    await safe_answer(m, "🛡 <b>تأییدیه کپچا فعال باشد؟ (yes/no)</b>", reply_markup=ABORT_KB)
+    await safe_answer(m, "🛡 <b>تأییدیه کپچا فعال باشد؟ (yes/no):</b>", reply_markup=ABORT_KB)
 
 
 @admin_router.message(NewGW.captcha)
-async def s10(m: Message, state: FSMContext, bot: Bot):
+async def s10(m: Message, state: FSMContext):
     v = (m.text or "").strip().lower()
-    if v not in ("yes", "no", "y", "n", "بله", "خیر"):
-        return await safe_answer(m, "پاسخ دهید: yes یا no", reply_markup=ABORT_KB)
     cap = 1 if v in ("yes", "y", "بله") else 0
+    await state.update_data(captcha=cap)
+    await state.set_state(NewGW.phone)
+    await safe_answer(m, "📱 <b>احراز هویت با شماره تلفن اجباری باشد؟ (yes/no):</b>", reply_markup=ABORT_KB)
+
+
+@admin_router.message(NewGW.phone)
+async def s11(m: Message, state: FSMContext, bot: Bot):
+    v = (m.text or "").strip().lower()
+    req_phone = 1 if v in ("yes", "y", "بله") else 0
 
     d = await state.get_data()
     now = int(time.time())
@@ -1307,53 +1321,30 @@ async def s10(m: Message, state: FSMContext, bot: Bot):
     with db(write=True) as c:
         cur = c.execute("""
             INSERT INTO giveaways
-            (title, prizes, winners_count, post_channel, start_at, ends_at,
-             min_invites, sponsor_text, sponsor_url, captcha, seed, status,
+            (title, prizes, prize_codes, banner_url, winners_count, post_channel, start_at, ends_at,
+             min_invites, sponsor_text, sponsor_url, captcha, req_phone, seed, status,
              created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, (d["title"], d["prizes"], d["winners"], d["channel"],
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (d["title"], d["prizes"], d["prize_codes"], d["banner_url"], d["winners"], d["channel"],
               start_at, ends_at, d["invites"], d["sponsor_text"],
-              d["sponsor_url"], cap, seed, status, now))
+              d["sponsor_url"], d["captcha"], req_phone, seed, status, now))
         gid = cur.lastrowid
-        c.executemany("INSERT INTO gw_channels VALUES (?,?)",
-                      [(gid, x) for x in chans])
+        c.executemany("INSERT INTO gw_channels VALUES (?,?)", [(gid, x) for x in chans])
 
     if status == "pending":
         await state.clear()
-        return await safe_answer(
-            m, f"✅ قرعه‌کشی #{gid} تنظیم شد و در {fmt_time(start_at)} منتشر می‌شود.",
-            reply_markup=BACK_HOME)
+        return await safe_answer(m, f"✅ قرعه‌کشی #{gid} ثبت شد.", reply_markup=BACK_HOME)
 
     g = get_gw(gid)
-    sent_ok = False
-    err = None
     try:
-        sent = await bot.send_message(
-            g["post_channel"], post_text(g),
-            reply_markup=await post_kb(bot, g, 0))
-        
-        await bot.send_message(
-            g["post_channel"],
-            CHANNEL_TEMPLATES["start_notice"].format(title=html.escape(g['title']))
-        )
-        
+        sent = await send_post_msg(bot, g["post_channel"], g, 0)
         with db(write=True) as c:
-            c.execute("UPDATE giveaways SET message_id=? WHERE id=?",
-                      (sent.message_id, gid))
-        sent_ok = True
+            c.execute("UPDATE giveaways SET message_id=? WHERE id=?", (sent.message_id, gid))
+        await safe_answer(m, f"✅ قرعه‌کشی #{gid} منتشر شد.", reply_markup=BACK_HOME)
     except TelegramBadRequest as e:
-        err = e
+        await safe_answer(m, f"⚠️ خطای ارسال: {e}", reply_markup=BACK_HOME)
 
     await state.clear()
-    if sent_ok:
-        await safe_answer(m, f"✅ قرعه‌کشی #{gid} منتشر شد.",
-                           reply_markup=BACK_HOME)
-    else:
-        await safe_answer(
-            m,
-            f"⚠️ ارسال فوری ناموفق: {err}\n"
-            f"ربات مجدداً تلاش خواهد کرد.",
-            reply_markup=BACK_HOME)
 
 
 # ---------------- اجرا ----------------
