@@ -1,5 +1,5 @@
 """
-Telegram Giveaway Bot v5.0 Ultimate — Full Featured & Auto Delivery
+Telegram Giveaway Bot v5.2 Ultimate — In-Bot Channel Template Editor & Fixed SQLite
 pip install -U aiogram
 """
 import asyncio
@@ -44,9 +44,9 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("giveaway")
 
 # =====================================================
-#  ⚙️ تنظیمات متون کانال
+#  ⚙️ متون پیش‌فرض کانال (قابل ویرایش از داخل ربات)
 # =====================================================
-CHANNEL_TEMPLATES = {
+DEFAULT_TEMPLATES = {
     "post_header": "🎉 <b>#قرعه_کشی | {title}</b>\n🏛 ────────────────────",
     "post_single_prize": "🎁 <b>جایزه:</b> {prize}",
     "post_multi_prize_title": "🎁 <b>لیست جوایز:</b>",
@@ -56,7 +56,6 @@ CHANNEL_TEMPLATES = {
     "post_channels": "📢 <b>کانال‌های حامی:</b> {channels}",
     "post_min_invites": "👫 <b>شرط ورود:</b> حداقل {invites} دعوت (هر دعوت = ۱ شانس اضافه 🎟)",
     "post_footer": "🏛 ────────────────────\n👇 <b>جهت شرکت و دریافت لینک اختصاصی روی دکمه زیر بزنید:</b>",
-
     "start_notice": "🚀 <b>قرعه‌کشی «{title}» رسماً شروع شد!</b>\n\nهم‌اکنون می‌توانید با کلیک روی دکمه پست بالا وارد شوید.",
     "reminder_notice": "⏰ <b>فقط ۱ ساعت تا پایان قرعه‌کشی «{title}» باقیست!</b>\n\n🔥 فرصت را از دست ندهید! اگر هنوز شرکت نکرده‌اید یا می‌خواهید شانس خود را بیشتر کنید روی دکمه زیر بزنید 👇",
     "reminder_btn_text": "🎁 شرکت در قرعه‌کشی / افزودن شانس",
@@ -69,6 +68,29 @@ CHANNEL_TEMPLATES = {
     "results_no_winners": "🎁 <b>قرعه‌کشی: {title}</b>\n\n😕 متأسفانه برنده واجد شرایطی یافت نشد.",
     "sponsor_notice": "📢 <b>با تشکر ویژه از اسپانسر محترم این قرعه‌کشی:</b>\n\n🔹 <b>{sponsor_name}</b>\nجهت مشاهده خدمات و حمایت از اسپانسر روی دکمه زیر کلیک کنید 👇",
     "sponsor_btn_text": "🔗 ورود به {sponsor_name}",
+}
+
+TEMPLATE_LABELS = {
+    "post_header": "📌 سربرگ پست قرعه‌کشی",
+    "post_single_prize": "🎁 متن تک جایزه‌ای",
+    "post_multi_prize_title": "🎁 تیتر چند جایزه‌ای",
+    "post_winners_count": "👥 تعداد برندگان",
+    "post_ends_at": "⏰ زمان پایان",
+    "post_channels": "📢 کانال‌های حامی",
+    "post_min_invites": "👫 شرط حداقل دعوت",
+    "post_footer": "👇 پاورقی پست قرعه‌کشی",
+    "start_notice": "🚀 پیام شروع رسمی",
+    "reminder_notice": "⏰ پیام یادآوری (۱ ساعت مانده)",
+    "reminder_btn_text": "🔘 دکمه پیام یادآوری",
+    "end_notice": "🔒 پیام اتمام مهلت شرکت",
+    "live_draw_start": "🎲 شروع لایو قرعه‌کشی",
+    "live_draw_step": "🎰 انیمیشن لایو قرعه‌کشی",
+    "results_header": "🏆 سربرگ اعلام نتایج",
+    "results_winner_item": "🥇 نمایش برنده در لیست نتایج",
+    "results_footer": "🔐 پاورقی اعلام نتایج و هش کد",
+    "results_no_winners": "😕 پیام عدم وجود برنده",
+    "sponsor_notice": "📢 متن تشکر از اسپانسر",
+    "sponsor_btn_text": "🔗 دکمه لینک اسپانسر"
 }
 
 admin_router = Router()
@@ -181,13 +203,27 @@ def init_db():
             lang TEXT NOT NULL DEFAULT 'fa',
             first_seen INTEGER NOT NULL DEFAULT 0
         );
-        CREATE INDEX IF NOT EXISTS idx_ref_inviter
-            ON referrals(giveaway_id, inviter_id, verified);
-        CREATE INDEX IF NOT EXISTS idx_ent_gw
-            ON entrants(giveaway_id, captcha_ok);
-        CREATE INDEX IF NOT EXISTS idx_gw_status
-            ON giveaways(status, ends_at);
+        CREATE TABLE IF NOT EXISTS templates (
+            key TEXT PRIMARY KEY,
+            val TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ref_inviter ON referrals(giveaway_id, inviter_id, verified);
+        CREATE INDEX IF NOT EXISTS idx_ent_gw ON entrants(giveaway_id, captcha_ok);
+        CREATE INDEX IF NOT EXISTS idx_gw_status ON giveaways(status, ends_at);
         """)
+        for key, val in DEFAULT_TEMPLATES.items():
+            c.execute("INSERT OR IGNORE INTO templates (key, val) VALUES (?, ?)", (key, val))
+
+
+def get_template(key: str) -> str:
+    with db() as c:
+        r = c.execute("SELECT val FROM templates WHERE key=?", (key,)).fetchone()
+        return r["val"] if r else DEFAULT_TEMPLATES.get(key, "")
+
+
+def set_template(key: str, val: str):
+    with db(write=True) as c:
+        c.execute("INSERT INTO templates (key, val) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET val=excluded.val", (key, val))
 
 
 def get_gw(gid: int):
@@ -197,16 +233,12 @@ def get_gw(gid: int):
 
 def gw_channels(gid: int) -> list[str]:
     with db() as c:
-        return [r["channel"] for r in c.execute(
-            "SELECT channel FROM gw_channels WHERE giveaway_id=?", (gid,))]
+        return [r["channel"] for r in c.execute("SELECT channel FROM gw_channels WHERE giveaway_id=?", (gid,))]
 
 
 def invites_of(gid: int, uid: int) -> int:
     with db() as c:
-        r = c.execute(
-            "SELECT COUNT(*) AS n FROM referrals "
-            "WHERE giveaway_id=? AND inviter_id=? AND verified=1",
-            (gid, uid)).fetchone()
+        r = c.execute("SELECT COUNT(*) AS n FROM referrals WHERE giveaway_id=? AND inviter_id=? AND verified=1", (gid, uid)).fetchone()
         return r["n"] if r else 0
 
 
@@ -229,8 +261,7 @@ def eligible(gid: int) -> list:
 
 def n_entrants(gid: int) -> int:
     with db() as c:
-        r = c.execute("SELECT COUNT(*) AS n FROM entrants WHERE giveaway_id=?",
-                      (gid,)).fetchone()
+        r = c.execute("SELECT COUNT(*) AS n FROM entrants WHERE giveaway_id=?", (gid,)).fetchone()
         return r["n"] if r else 0
 
 
@@ -239,9 +270,7 @@ def leaderboard(gid: int, limit: int = 10) -> list:
         return c.execute("""
             SELECT r.inviter_id, COUNT(*) AS c
             FROM referrals r
-            JOIN entrants e ON e.giveaway_id = r.giveaway_id
-                            AND e.user_id = r.inviter_id
-                            AND e.captcha_ok = 1
+            JOIN entrants e ON e.giveaway_id = r.giveaway_id AND e.user_id = r.inviter_id AND e.captcha_ok = 1
             WHERE r.giveaway_id = ? AND r.verified = 1
             GROUP BY r.inviter_id
             ORDER BY c DESC LIMIT ?
@@ -256,17 +285,12 @@ def get_lang(uid: int) -> str:
 
 def set_lang(uid: int, lang: str):
     with db(write=True) as c:
-        c.execute(
-            "INSERT INTO users (user_id, lang) VALUES (?,?) "
-            "ON CONFLICT(user_id) DO UPDATE SET lang=excluded.lang",
-            (uid, lang))
+        c.execute("INSERT INTO users (user_id, lang) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET lang=excluded.lang", (uid, lang))
 
 
 def ensure_user(uid: int):
     with db(write=True) as c:
-        c.execute(
-            "INSERT OR IGNORE INTO users (user_id, first_seen) VALUES (?, ?)",
-            (uid, int(time.time())))
+        c.execute("INSERT OR IGNORE INTO users (user_id, first_seen) VALUES (?, ?)", (uid, int(time.time())))
 
 
 # ---------------- i18n ----------------
@@ -313,26 +337,26 @@ def fmt_time(ts: int) -> str:
 
 
 def post_text(g) -> str:
-    lines = [CHANNEL_TEMPLATES["post_header"].format(title=html.escape(g['title']))]
+    lines = [get_template("post_header").format(title=html.escape(g['title']))]
     prizes = [p for p in (g["prizes"] or "").split("|") if p.strip()] or ["—"]
     
     if len(prizes) == 1:
-        lines.append(CHANNEL_TEMPLATES["post_single_prize"].format(prize=html.escape(prizes[0])))
+        lines.append(get_template("post_single_prize").format(prize=html.escape(prizes[0])))
     else:
-        lines.append(CHANNEL_TEMPLATES["post_multi_prize_title"])
+        lines.append(get_template("post_multi_prize_title"))
         for i, p in enumerate(prizes, 1):
-            lines.append(CHANNEL_TEMPLATES["post_multi_prize_item"].format(rank=i, prize=html.escape(p)))
+            lines.append(get_template("post_multi_prize_item").format(rank=i, prize=html.escape(p)))
 
-    lines.append(CHANNEL_TEMPLATES["post_winners_count"].format(count=g['winners_count']))
-    lines.append(CHANNEL_TEMPLATES["post_ends_at"].format(ends_at=fmt_time(g['ends_at'])))
+    lines.append(get_template("post_winners_count").format(count=g['winners_count']))
+    lines.append(get_template("post_ends_at").format(ends_at=fmt_time(g['ends_at'])))
     
     chans = gw_channels(g["id"])
     if chans:
-        lines.append(CHANNEL_TEMPLATES["post_channels"].format(channels=" ، ".join(chans)))
+        lines.append(get_template("post_channels").format(channels=" ، ".join(chans)))
     if g["min_invites"]:
-        lines.append(CHANNEL_TEMPLATES["post_min_invites"].format(invites=g['min_invites']))
+        lines.append(get_template("post_min_invites").format(invites=g['min_invites']))
 
-    lines.append(CHANNEL_TEMPLATES["post_footer"])
+    lines.append(get_template("post_footer"))
     return "\n".join(lines)
 
 
@@ -362,8 +386,7 @@ async def missing_channels(bot: Bot, gid: int, uid: int) -> list[str]:
             m = await bot.get_chat_member(ch, uid)
             status = getattr(m, "status", None)
             is_member = getattr(m, "is_member", False)
-            left = (status in ("left", "kicked")
-                    or (status == "restricted" and not is_member))
+            left = (status in ("left", "kicked") or (status == "restricted" and not is_member))
             if left:
                 miss.append(ch)
         except TelegramBadRequest:
@@ -389,7 +412,7 @@ async def notify_inviter(bot: Bot, g, inviter_id: int):
         log.warning("notify_inviter(%s): %s", inviter_id, e)
 
 
-# ---------------- کارت شرکت در ربات ----------------
+# ---------------- کارت شرکت ----------------
 async def entry_screen(bot: Bot, gid: int, user):
     g = get_gw(gid)
     uid = user.id
@@ -397,15 +420,11 @@ async def entry_screen(bot: Bot, gid: int, user):
         return t(uid, "finished"), None, None
 
     with db() as c:
-        row = c.execute(
-            "SELECT captcha_ok, phone_ok FROM entrants WHERE giveaway_id=? AND user_id=?",
-            (gid, uid)).fetchone()
+        row = c.execute("SELECT captcha_ok, phone_ok FROM entrants WHERE giveaway_id=? AND user_id=?", (gid, uid)).fetchone()
 
-    # ۱. بررسی کپچا
     if g["captcha"] and (not row or not row["captcha_ok"]):
         return t(uid, "captcha"), kb([btn(t(uid, "captcha_btn"), callback_data=f"cap:{gid}")]), None
 
-    # ۲. بررسی شماره تلفن (در صورت فعال بودن)
     if g["req_phone"] and (not row or not row["phone_ok"]):
         reply_kb = ReplyKeyboardMarkup(
             keyboard=[[KeyboardButton(text=t(uid, "phone_btn"), request_contact=True)]],
@@ -413,33 +432,23 @@ async def entry_screen(bot: Bot, gid: int, user):
         )
         return t(uid, "phone_req"), None, reply_kb
 
-    # ۳. بررسی عضویت در کانال‌ها
     miss = await missing_channels(bot, gid, uid)
     if miss:
         rows = [[btn(f"📢 عضویت در {ch}", url=f"https://t.me/{ch.lstrip('@')}")] for ch in miss]
         rows.append([btn(t(uid, "joined"), callback_data=f"chk:{gid}")])
         return t(uid, "must_join"), kb(*rows), None
 
-    # ۴. ثبت نهایی ورودی
     newly_verified = False
     inviter_id = None
     with db(write=True) as c:
         cur = c.execute(
-            "INSERT OR IGNORE INTO entrants "
-            "(giveaway_id,user_id,username,full_name,captcha_ok,phone_ok,joined_at) "
-            "VALUES (?,?,?,?,1,1,?)",
+            "INSERT OR IGNORE INTO entrants (giveaway_id,user_id,username,full_name,captcha_ok,phone_ok,joined_at) VALUES (?,?,?,?,1,1,?)",
             (gid, uid, user.username, user.full_name, int(time.time())))
         new_entrant = cur.rowcount > 0
 
-        ref = c.execute(
-            "SELECT inviter_id, verified FROM referrals "
-            "WHERE giveaway_id=? AND invited_id=?",
-            (gid, uid)).fetchone()
+        ref = c.execute("SELECT inviter_id, verified FROM referrals WHERE giveaway_id=? AND invited_id=?", (gid, uid)).fetchone()
         if ref and not ref["verified"]:
-            c.execute(
-                "UPDATE referrals SET verified=1 "
-                "WHERE giveaway_id=? AND invited_id=? AND verified=0",
-                (gid, uid))
+            c.execute("UPDATE referrals SET verified=1 WHERE giveaway_id=? AND invited_id=? AND verified=0", (gid, uid))
             newly_verified = True
             inviter_id = ref["inviter_id"]
 
@@ -454,8 +463,7 @@ async def entry_screen(bot: Bot, gid: int, user):
 
     me = await bot.me()
     link = f"https://t.me/{me.username}?start=g_{gid}_{uid}"
-    share = ("https://t.me/share/url?url=" + quote(link)
-             + "&text=" + quote(f"🎁 در قرعه‌کشی بزرگ «{g['title']}» شرکت کن!"))
+    share = ("https://t.me/share/url?url=" + quote(link) + "&text=" + quote(f"🎁 در قرعه‌کشی بزرگ «{g['title']}» شرکت کن!"))
 
     card = [
         f"🎯 <b>کارت ورود به قرعه‌کشی: {html.escape(g['title'])}</b>",
@@ -487,7 +495,7 @@ async def entry_screen(bot: Bot, gid: int, user):
     return "\n".join(card), kb(*buttons), None
 
 
-# ---------------- قرعه‌کشی و ارسال کدهای تحویل ----------------
+# ---------------- قرعه‌کشی و اعلانات کانال ----------------
 def build_pool(users: list) -> list:
     pool = []
     for u in users:
@@ -502,9 +510,7 @@ async def finish_giveaway(bot: Bot, gid: int):
     DRAWING.add(gid)
     try:
         with db(write=True) as c:
-            cur = c.execute(
-                "UPDATE giveaways SET status='finished' "
-                "WHERE id=? AND status='active'", (gid,))
+            cur = c.execute("UPDATE giveaways SET status='finished' WHERE id=? AND status='active'", (gid,))
             if cur.rowcount == 0:
                 return
         g = get_gw(gid)
@@ -514,10 +520,7 @@ async def finish_giveaway(bot: Bot, gid: int):
         title = html.escape(g["title"])
 
         try:
-            await bot.send_message(
-                g["post_channel"],
-                CHANNEL_TEMPLATES["end_notice"].format(title=title)
-            )
+            await bot.send_message(g["post_channel"], get_template("end_notice").format(title=title))
         except TelegramBadRequest as e:
             log.warning("End notice error: %s", e)
 
@@ -528,16 +531,14 @@ async def finish_giveaway(bot: Bot, gid: int):
         live_msg = None
         if users:
             try:
-                live_msg = await bot.send_message(
-                    g["post_channel"],
-                    CHANNEL_TEMPLATES["live_draw_start"])
+                live_msg = await bot.send_message(g["post_channel"], get_template("live_draw_start"))
                 for _ in range(3):
                     await asyncio.sleep(1)
                     sample = random.choice(users)
                     name = sample["full_name"] or "کاربر"
                     try:
                         await bot.edit_message_text(
-                            CHANNEL_TEMPLATES["live_draw_step"].format(title=title, name=html.escape(name)),
+                            get_template("live_draw_step").format(title=title, name=html.escape(name)),
                             chat_id=g["post_channel"],
                             message_id=live_msg.message_id)
                     except TelegramBadRequest:
@@ -572,28 +573,21 @@ async def finish_giveaway(bot: Bot, gid: int):
         digest = hashlib.sha256(payload).hexdigest()
 
         if not winners:
-            text = CHANNEL_TEMPLATES["results_no_winners"].format(title=title)
+            text = get_template("results_no_winners").format(title=title)
         else:
-            lines = [CHANNEL_TEMPLATES["results_header"].format(title=title, total_users=len(users))]
+            lines = [get_template("results_header").format(title=title, total_users=len(users))]
             for i, w in enumerate(winners):
-                uname = (f"@{w['username']}" if w["username"]
-                         else html.escape(w["full_name"] or "کاربر"))
+                uname = (f"@{w['username']}" if w["username"] else html.escape(w["full_name"] or "کاربر"))
                 prize = prizes[i] if i < len(prizes) else prizes[-1]
                 inv = invites_of(gid, w["user_id"])
-                lines.append(
-                    CHANNEL_TEMPLATES["results_winner_item"].format(
-                        rank=i+1, prize=html.escape(prize), user_id=w['user_id'], username=uname, invites=inv
-                    )
-                )
-            lines.append(CHANNEL_TEMPLATES["results_footer"].format(digest=digest))
+                lines.append(get_template("results_winner_item").format(rank=i+1, prize=html.escape(prize), user_id=w['user_id'], username=uname, invites=inv))
+            lines.append(get_template("results_footer").format(digest=digest))
             text = "".join(lines)
 
         sent_ok = False
         if live_msg:
             try:
-                await bot.edit_message_text(
-                    text, chat_id=g["post_channel"],
-                    message_id=live_msg.message_id)
+                await bot.edit_message_text(text, chat_id=g["post_channel"], message_id=live_msg.message_id)
                 sent_ok = True
             except TelegramBadRequest as e:
                 log.warning("result edit failed: %s", e)
@@ -608,22 +602,18 @@ async def finish_giveaway(bot: Bot, gid: int):
                 sp_label = g["sponsor_text"] or "اسپانسر برنامه"
                 await bot.send_message(
                     g["post_channel"],
-                    CHANNEL_TEMPLATES["sponsor_notice"].format(sponsor_name=html.escape(sp_label)),
-                    reply_markup=kb([btn(CHANNEL_TEMPLATES["sponsor_btn_text"].format(sponsor_name=sp_label), url=g["sponsor_url"])])
+                    get_template("sponsor_notice").format(sponsor_name=html.escape(sp_label)),
+                    reply_markup=kb([btn(get_template("sponsor_btn_text").format(sponsor_name=sp_label), url=g["sponsor_url"])])
                 )
             except TelegramBadRequest:
                 pass
 
         if g["message_id"]:
             try:
-                await bot.edit_message_reply_markup(
-                    chat_id=g["post_channel"],
-                    message_id=g["message_id"],
-                    reply_markup=None)
+                await bot.edit_message_reply_markup(chat_id=g["post_channel"], message_id=g["message_id"], reply_markup=None)
             except TelegramBadRequest:
                 pass
 
-        # ارسال پیام تبریک و کدهای جایزه خودکار به برندگان
         for i, w in enumerate(winners):
             try:
                 prize = prizes[i] if i < len(prizes) else prizes[-1]
@@ -633,10 +623,7 @@ async def finish_giveaway(bot: Bot, gid: int):
 
                 await bot.send_message(
                     w["user_id"],
-                    f"🎉 <b>تبریک فوق‌العاده! شما برنده شدید!</b> 🏆\n\n"
-                    f"🎁 <b>جایزه شما:</b> {html.escape(prize)}{code_text}\n"
-                    f"مقام: رتبه {i+1} در قرعه‌کشی «{title}»\n\n"
-                    f"با تشکر از شرکت شما!")
+                    f"🎉 <b>تبریک فوق‌العاده! شما برنده شدید!</b> 🏆\n\n🎁 <b>جایزه شما:</b> {html.escape(prize)}{code_text}\nمقام: رتبه {i+1} در قرعه‌کشی «{title}»\n\nبا تشکر از شرکت شما!")
                 await asyncio.sleep(DM_DELAY)
             except (TelegramBadRequest, TelegramForbiddenError):
                 pass
@@ -650,23 +637,15 @@ async def finish_giveaway(bot: Bot, gid: int):
 
 async def cancel_giveaway(bot: Bot, gid: int):
     with db(write=True) as c:
-        cur = c.execute(
-            "UPDATE giveaways SET status='cancelled' "
-            "WHERE id=? AND status IN ('active','pending')", (gid,))
+        cur = c.execute("UPDATE giveaways SET status='cancelled' WHERE id=? AND status IN ('active','pending')", (gid,))
         if cur.rowcount == 0:
             return
     g = get_gw(gid)
     if not g or not g["message_id"] or g["status"] == "pending":
         return
     try:
-        await bot.edit_message_text(
-            f"🚫 <b>{html.escape(g['title'])}</b>\n\nاین قرعه‌کشی توسط مدیریت لغو شد.",
-            chat_id=g["post_channel"],
-            message_id=g["message_id"])
-        await bot.edit_message_reply_markup(
-            chat_id=g["post_channel"],
-            message_id=g["message_id"],
-            reply_markup=None)
+        await bot.edit_message_text(f"🚫 <b>{html.escape(g['title'])}</b>\n\nاین قرعه‌کشی توسط مدیریت لغو شد.", chat_id=g["post_channel"], message_id=g["message_id"])
+        await bot.edit_message_reply_markup(chat_id=g["post_channel"], message_id=g["message_id"], reply_markup=None)
     except TelegramBadRequest as e:
         log.warning("cancel edit: %s", e)
 
@@ -679,10 +658,7 @@ async def watcher(bot: Bot):
             now = int(time.time())
 
             with db() as c:
-                pend = c.execute(
-                    "SELECT id FROM giveaways "
-                    "WHERE status='pending' AND start_at>0 AND start_at<=?",
-                    (now,)).fetchall()
+                pend = c.execute("SELECT id FROM giveaways WHERE status='pending' AND start_at>0 AND start_at<=?", (now,)).fetchall()
             for r in pend:
                 gid = r["id"]
                 g = get_gw(gid)
@@ -690,26 +666,15 @@ async def watcher(bot: Bot):
                     continue
                 try:
                     sent = await send_post_msg(bot, g["post_channel"], g, 0)
-                    
-                    await bot.send_message(
-                        g["post_channel"],
-                        CHANNEL_TEMPLATES["start_notice"].format(title=html.escape(g['title']))
-                    )
-                    
+                    await bot.send_message(g["post_channel"], get_template("start_notice").format(title=html.escape(g['title'])))
                     with db(write=True) as c:
-                        c.execute(
-                            "UPDATE giveaways SET status='active', message_id=? "
-                            "WHERE id=? AND status='pending'",
-                            (sent.message_id, gid))
+                        c.execute("UPDATE giveaways SET status='active', message_id=? WHERE id=? AND status='pending'", (sent.message_id, gid))
                     log.info("scheduled publish #%s", gid)
                 except TelegramBadRequest as e:
                     log.error("schedule send #%s: %s", gid, e)
 
             with db() as c:
-                broken = c.execute(
-                    "SELECT id FROM giveaways "
-                    "WHERE status='active' AND (message_id IS NULL OR message_id=0)"
-                ).fetchall()
+                broken = c.execute("SELECT id FROM giveaways WHERE status='active' AND (message_id IS NULL OR message_id=0)").fetchall()
             for r in broken:
                 gid = r["id"]
                 g = get_gw(gid)
@@ -718,17 +683,12 @@ async def watcher(bot: Bot):
                 try:
                     sent = await send_post_msg(bot, g["post_channel"], g, 0)
                     with db(write=True) as c:
-                        c.execute(
-                            "UPDATE giveaways SET message_id=? "
-                            "WHERE id=? AND message_id IS NULL",
-                            (sent.message_id, gid))
+                        c.execute("UPDATE giveaways SET message_id=? WHERE id=? AND message_id IS NULL", (sent.message_id, gid))
                 except TelegramBadRequest as e:
                     log.error("fix broken #%s: %s", gid, e)
 
             with db() as c:
-                rows = c.execute(
-                    "SELECT id, ends_at FROM giveaways WHERE status='active'"
-                ).fetchall()
+                rows = c.execute("SELECT id, ends_at FROM giveaways WHERE status='active'").fetchall()
             for r in rows:
                 gid = r["id"]
                 delta = r["ends_at"] - now
@@ -744,10 +704,7 @@ async def watcher(bot: Bot):
                 if not g or g["status"] != "active" or not g["message_id"]:
                     continue
                 try:
-                    await bot.edit_message_reply_markup(
-                        chat_id=g["post_channel"],
-                        message_id=g["message_id"],
-                        reply_markup=await post_kb(bot, g, len(eligible(gid))))
+                    await bot.edit_message_reply_markup(chat_id=g["post_channel"], message_id=g["message_id"], reply_markup=await post_kb(bot, g, len(eligible(gid))))
                 except TelegramBadRequest:
                     pass
 
@@ -773,8 +730,8 @@ async def send_reminders(bot: Bot, gid: int):
     try:
         await bot.send_message(
             g["post_channel"],
-            CHANNEL_TEMPLATES["reminder_notice"].format(title=html.escape(g['title'])),
-            reply_markup=kb([btn(CHANNEL_TEMPLATES["reminder_btn_text"], url=url)])
+            get_template("reminder_notice").format(title=html.escape(g['title'])),
+            reply_markup=kb([btn(get_template("reminder_btn_text"), url=url)])
         )
     except TelegramBadRequest as e:
         log.warning("Channel reminder error: %s", e)
@@ -785,9 +742,7 @@ async def send_reminders(bot: Bot, gid: int):
             try:
                 await bot.send_message(
                     u["user_id"],
-                    f"⏰ <b>زمان رو به پایان است!</b>\n\n"
-                    f"فقط ۱ ساعت تا پایان قرعه‌کشی «{html.escape(g['title'])}» زمان داری.\n"
-                    f"🎟 با دعوت از دوستانت، شانس برنده شدنت رو چند برابر کن!")
+                    f"⏰ <b>زمان رو به پایان است!</b>\n\nفقط ۱ ساعت تا پایان قرعه‌کشی «{html.escape(g['title'])}» زمان داری.\n🎟 با دعوت از دوستانت، شانس برنده شدنت رو چند برابر کن!")
             except (TelegramBadRequest, TelegramForbiddenError):
                 pass
             except Exception as e:
@@ -815,19 +770,11 @@ async def start(m: Message, command: CommandObject, bot: Bot):
             inviter = int(parts[2])
 
         g = get_gw(gid)
-        if (g and g["status"] == "active" and g["min_invites"] > 0
-                and inviter and inviter != m.from_user.id):
+        if (g and g["status"] == "active" and g["min_invites"] > 0 and inviter and inviter != m.from_user.id):
             with db(write=True) as c:
-                al = c.execute(
-                    "SELECT 1 FROM entrants "
-                    "WHERE giveaway_id=? AND user_id=?",
-                    (gid, m.from_user.id)).fetchone()
+                al = c.execute("SELECT 1 FROM entrants WHERE giveaway_id=? AND user_id=?", (gid, m.from_user.id)).fetchone()
                 if not al:
-                    c.execute(
-                        "INSERT OR IGNORE INTO referrals "
-                        "(giveaway_id, inviter_id, invited_id, created_at) "
-                        "VALUES (?,?,?,?)",
-                        (gid, inviter, m.from_user.id, int(time.time())))
+                    c.execute("INSERT OR IGNORE INTO referrals (giveaway_id, inviter_id, invited_id, created_at) VALUES (?,?,?,?)", (gid, inviter, m.from_user.id, int(time.time())))
 
         text, markup, reply_kb = await entry_screen(bot, gid, m.from_user)
         return await m.answer(text, reply_markup=reply_kb or markup)
@@ -859,14 +806,8 @@ async def cap_cb(cb: CallbackQuery, bot: Bot):
     if not g or g["status"] != "active":
         return await cb.answer(t(cb.from_user.id, "finished"), show_alert=True)
     with db(write=True) as c:
-        c.execute(
-            "INSERT OR IGNORE INTO entrants "
-            "(giveaway_id,user_id,captcha_ok,joined_at) VALUES (?,?,1,?)",
-            (gid, cb.from_user.id, int(time.time())))
-        c.execute(
-            "UPDATE entrants SET captcha_ok=1 "
-            "WHERE giveaway_id=? AND user_id=?",
-            (gid, cb.from_user.id))
+        c.execute("INSERT OR IGNORE INTO entrants (giveaway_id,user_id,captcha_ok,joined_at) VALUES (?,?,1,?)", (gid, cb.from_user.id, int(time.time())))
+        c.execute("UPDATE entrants SET captcha_ok=1 WHERE giveaway_id=? AND user_id=?", (gid, cb.from_user.id))
     text, markup, reply_kb = await entry_screen(bot, gid, cb.from_user)
     try:
         if reply_kb:
@@ -907,10 +848,7 @@ async def top_cb(cb: CallbackQuery):
     with db() as c:
         lines = ["🏆 <b>برترین دعوت‌کنندگان این قرعه‌کشی</b>\n", "🥇 ────────────────────"]
         for i, r in enumerate(rows, 1):
-            u = c.execute(
-                "SELECT username, full_name FROM entrants "
-                "WHERE giveaway_id=? AND user_id=?",
-                (gid, r["inviter_id"])).fetchone()
+            u = c.execute("SELECT username, full_name FROM entrants WHERE giveaway_id=? AND user_id=?", (gid, r["inviter_id"])).fetchone()
             if u and u["username"]:
                 name = f"@{u['username']}"
             elif u and u["full_name"]:
@@ -920,9 +858,7 @@ async def top_cb(cb: CallbackQuery):
             lines.append(f"{i}. {name} ← <b>{r['c']} دعوت</b>")
     text = "\n".join(lines)
     try:
-        await cb.message.edit_text(
-            text,
-            reply_markup=kb([btn("🔙 بازگشت به کارت شرکت", callback_data=f"chk:{gid}")]))
+        await cb.message.edit_text(text, reply_markup=kb([btn("🔙 بازگشت به کارت شرکت", callback_data=f"chk:{gid}")]))
     except TelegramBadRequest:
         pass
     await cb.answer()
@@ -938,6 +874,7 @@ def panel_kb():
     return kb(
         [btn("➕ ساخت قرعه‌کشی جدید", callback_data="adm:new")],
         [btn("📋 لیست قرعه‌کشی‌های فعال", callback_data="adm:list")],
+        [btn("📝 تنظیمات متون کانال", callback_data="adm:tpl")],
         [btn("📢 همگانی (Broadcast)", callback_data="adm:bc")],
         [btn("📊 آمار و گزارش کل", callback_data="adm:stats")],
     )
@@ -983,6 +920,11 @@ class ExtendFSM(StatesGroup):
     minutes = State()
 
 
+class EditTemplateFSM(StatesGroup):
+    key = State()
+    val = State()
+
+
 @admin_router.message(Command("panel"))
 async def panel_cmd(m: Message, state: FSMContext):
     await state.clear()
@@ -1001,6 +943,26 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
     if act == "abort":
         await state.clear()
         return await show(cb, "❌ عملیات لغو شد.\n\n" + PANEL_TEXT, panel_kb())
+
+    # --- مدیریت متون کانال ---
+    if act == "tpl":
+        buttons = []
+        for k, label in TEMPLATE_LABELS.items():
+            buttons.append([btn(label, callback_data=f"adm:etpl:{k}")])
+        buttons.append([btn("🔙 بازگشت به پنل", callback_data="adm:home")])
+        return await show(cb, "📝 <b>کدام متن کانال را می‌خواهید ویرایش کنید؟</b>", kb(*buttons))
+
+    if act == "etpl":
+        t_key = p[2]
+        curr_val = get_template(t_key)
+        await state.update_data(edit_t_key=t_key)
+        await state.set_state(EditTemplateFSM.val)
+        msg = (
+            f"📝 <b>ویرایش متن: {TEMPLATE_LABELS.get(t_key, t_key)}</b>\n\n"
+            f"<b>متن فعلی:</b>\n<code>{html.escape(curr_val)}</code>\n\n"
+            f"👇 لطفاً متن جدید را ارسال کنید:"
+        )
+        return await show(cb, msg, ABORT_KB)
 
     if act == "bc":
         await state.set_state(BroadcastFSM.msg)
@@ -1029,17 +991,12 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
 
     if act == "list":
         with db() as c:
-            rows = c.execute(
-                "SELECT * FROM giveaways "
-                "WHERE status IN ('active','pending') ORDER BY id DESC").fetchall()
+            rows = c.execute("SELECT * FROM giveaways WHERE status IN ('active','pending') ORDER BY id DESC").fetchall()
         if not rows:
             return await show(cb, "هیچ قرعه‌کشی فعالی یافت نشد.", BACK_HOME)
         buttons = []
         for r in rows:
-            buttons.append([
-                btn(f"#{r['id']} · {r['title']} ({len(eligible(r['id']))} نفر)",
-                    callback_data=f"adm:view:{r['id']}")
-            ])
+            buttons.append([btn(f"#{r['id']} · {r['title']} ({len(eligible(r['id']))} نفر)", callback_data=f"adm:view:{r['id']}")])
         buttons.append([btn("🔙 پنل", callback_data="adm:home")])
         return await show(cb, "📋 <b>لیست قرعه‌کشی‌های فعال</b>", kb(*buttons))
 
@@ -1071,16 +1028,11 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
     if act == "lb":
         rows = leaderboard(gid, 15)
         if not rows:
-            return await show(
-                cb, "هنوز کسی دعوتی نداشته.",
-                kb([btn("🔙 بازگشت", callback_data=f"adm:view:{gid}")]))
+            return await show(cb, "هنوز کسی دعوتی نداشته.", kb([btn("🔙 بازگشت", callback_data=f"adm:view:{gid}")]))
         with db() as c:
             lines = []
             for i, r in enumerate(rows, 1):
-                u = c.execute(
-                    "SELECT username, full_name FROM entrants "
-                    "WHERE giveaway_id=? AND user_id=?",
-                    (gid, r["inviter_id"])).fetchone()
+                u = c.execute("SELECT username, full_name FROM entrants WHERE giveaway_id=? AND user_id=?", (gid, r["inviter_id"])).fetchone()
                 if u and u["username"]:
                     nm = f"@{u['username']}"
                 elif u and u["full_name"]:
@@ -1088,9 +1040,7 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
                 else:
                     nm = "—"
                 lines.append(f"{i}. {nm} — {r['c']}")
-        return await show(
-            cb, "🏆 <b>لیدربورد دعوت‌کنندگان</b>\n\n" + "\n".join(lines),
-            kb([btn("🔙 بازگشت", callback_data=f"adm:view:{gid}")]))
+        return await show(cb, "🏆 <b>لیدربورد دعوت‌کنندگان</b>\n\n" + "\n".join(lines), kb([btn("🔙 بازگشت", callback_data=f"adm:view:{gid}")]))
 
     if act == "ask":
         if len(p) < 4:
@@ -1111,6 +1061,20 @@ async def adm_cb(cb: CallbackQuery, state: FSMContext, bot: Bot):
             return await show(cb, "⏳ قرعه‌کشی در حال انجام است...", BACK_HOME)
         await cancel_giveaway(bot, gid)
         return await show(cb, "🚫 قرعه‌کشی لغو گردید.", BACK_HOME)
+
+
+@admin_router.message(EditTemplateFSM.val)
+async def save_template_val(m: Message, state: FSMContext):
+    data = await state.get_data()
+    t_key = data.get("edit_t_key")
+    new_val = m.text or ""
+
+    if not new_val:
+        return await m.answer("متن نمی‌تواند خالی باشد.", reply_markup=ABORT_KB)
+
+    set_template(t_key, new_val)
+    await state.clear()
+    await m.answer(f"✅ متن <b>{TEMPLATE_LABELS.get(t_key, t_key)}</b> با موفقیت به‌روزرسانی شد!", reply_markup=panel_kb())
 
 
 @admin_router.message(BroadcastFSM.msg)
