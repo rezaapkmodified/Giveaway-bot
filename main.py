@@ -1,5 +1,5 @@
 """
-Telegram Giveaway Bot v5.4 Ultimate — Auto-Cleanup Extra Messages & Jalali Dates
+Telegram Giveaway Bot v5.5 Ultimate — Modern UI, Auto-Cleanup, Anti-Left & Jalali Dates
 pip install -U aiogram
 """
 import asyncio
@@ -47,7 +47,6 @@ log = logging.getLogger("giveaway")
 # =====================================================
 def gregorian_to_jalali(gy, gm, gd):
     g_days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    
     gy2 = gy + 1 if gm > 2 else gy
     days = (gy2 - 1) * 365 + (gy2 - 1) // 4 - (gy2 - 1) // 100 + (gy2 - 1) // 400
     for i in range(gm - 1):
@@ -87,7 +86,7 @@ def fmt_jalali(ts: int) -> str:
     return f"{jy:04d}/{jm:02d}/{jd:02d} · {t_struct.tm_hour:02d}:{t_struct.tm_min:02d}"
 
 # =====================================================
-#  ⚙️ متون پیش‌فرض کانال
+#  ⚙️ متون پیش‌فرض کانال (قابل ویرایش)
 # =====================================================
 DEFAULT_TEMPLATES = {
     "post_header": "🎉 <b>#قرعه_کشی | {title}</b>\n🏛 ────────────────────",
@@ -100,9 +99,9 @@ DEFAULT_TEMPLATES = {
     "post_min_invites": "👫 <b>شرط ورود:</b> حداقل {invites} دعوت (هر دعوت = ۱ شانس اضافه 🎟)",
     "post_footer": "🏛 ────────────────────\n👇 <b>جهت شرکت و دریافت لینک اختصاصی روی دکمه زیر بزنید:</b>",
     "start_notice": "🚀 <b>قرعه‌کشی «{title}» رسماً شروع شد!</b>\n\nهم‌اکنون می‌توانید با کلیک روی دکمه پست بالا وارد شوید.",
-    "reminder_notice": "⏰ <b>فقط زمان کوتاهی تا پایان قرعه‌کشی «{title}» باقیست!</b>\n\n🔥 فرصت را از دست ندهید! اگر هنوز شرکت نکرده‌اید یا می‌خواهید شانس خود را بیشتر کنید روی دکمه زیر بزنید 👇",
+    "reminder_notice": "⏰ <b>فقط زمان کوتاهی تا پایان قرعه‌کشی «{title}» باقیست!</b>\n\n🔥 فرصت را از دست ندهید! اگر هنوز شرکت نکرده‌اید روی دکمه زیر بزنید 👇",
     "reminder_btn_text": "🎁 شرکت در قرعه‌کشی / افزودن شانس",
-    "end_notice": "🔒 <b>مهلت شرکت در قرعه‌کشی «{title}» به پایان رسید!</b>\n\n⏳ هم‌اکنون قرعه‌کشی و بررسی استعلام اعضا در حال انجام است...",
+    "end_notice": "🔒 <b>مهلت شرکت در قرعه‌کشی «{title}» به پایان رسید!</b>\n\n⏳ هم‌اکنون قرعه‌کشی و استعلام اعضا در حال انجام است...",
     "live_draw_start": "🎲 <b>گردونه شانس در حال چرخیدن است...</b>\n\n⏳ لطفاً شکیبا باشید...",
     "live_draw_step": "🎲 <b>در حال قرعه‌کشی: {title}</b>\n\n🎰 انتخاب از میان واجدین شرایط: <b>{name}</b>",
     "results_header": "🏆 <b>نتایج رسمی قرعه‌کشی: {title}</b>\n👑 ════════════════════\n👥 <b>کل واجدین شرایط:</b> {total_users} نفر\n",
@@ -374,7 +373,6 @@ T = {
         "captcha_ok": "✅ هویت شما با موفقیت تأیید شد!",
         "no_change": "هنوز تغییری ایجاد نشده است 🙂",
         "bad_link": "❌ لینک ورود نامعتبر است.",
-        "welcome": "👋 <b>به ربات برگزاری قرعه‌کشی خوش آمدید!</b>\n\nبرای شرکت، روی دکمه‌های شیشه‌ای زیر پست‌های کانال کلیک کنید.\n/lang fa | en",
     },
     "en": {
         "must_join": "📌 <b>To enter, please join the following channels first:</b>",
@@ -387,7 +385,6 @@ T = {
         "captcha_ok": "✅ Verification successful!",
         "no_change": "No changes detected 🙂",
         "bad_link": "❌ Invalid entry link.",
-        "welcome": "👋 <b>Welcome to Giveaway Bot!</b>\n\nClick the button under channel posts to participate.\n/lang fa | en",
     },
 }
 
@@ -442,7 +439,7 @@ async def send_post_msg(bot: Bot, chat_id: str, g, n: int):
     return await bot.send_message(chat_id, text, reply_markup=markup)
 
 
-# ---------------- عضویت ----------------
+# ---------------- عضویت و ضد لفت ----------------
 async def missing_channels(bot: Bot, gid: int, uid: int) -> list[str]:
     miss = []
     for ch in gw_channels(gid):
@@ -476,7 +473,7 @@ async def notify_inviter(bot: Bot, g, inviter_id: int):
         log.warning("notify_inviter(%s): %s", inviter_id, e)
 
 
-# ---------------- کارت شرکت ----------------
+# ---------------- کارت شرکت در ربات ----------------
 async def entry_screen(bot: Bot, gid: int, user):
     g = get_gw(gid)
     uid = user.id
@@ -531,7 +528,7 @@ async def entry_screen(bot: Bot, gid: int, user):
 
     card = [
         f"🎯 <b>کارت ورود به قرعه‌کشی: {html.escape(g['title'])}</b>",
-        "📋 ════════════════",
+        "╭──────────────────╮",
         f"👤 <b>شرکت‌کننده:</b> {html.escape(user.full_name or 'کاربر')}",
         f"🎟 <b>کل بلیط‌های شما:</b> <code>{tickets}</code> شانس",
     ]
@@ -545,7 +542,7 @@ async def entry_screen(bot: Bot, gid: int, user):
             card.append("🎉 <i>شرط دعوت برآورده شد!</i>")
 
     card += [
-        "📋 ════════════════",
+        "╰──────────────────╯",
         "🔗 <b>لینک اختصاصی دعوت شما:</b>",
         f"<code>{link}</code>",
         "\n💡 <i>هر دعوت موفق = ۱ بلیط شانس بیشتر</i>"
@@ -583,14 +580,20 @@ async def finish_giveaway(bot: Bot, gid: int):
 
         title = html.escape(g["title"])
 
-        # ۱) ارسال پیام پایان
         try:
             m_end = await bot.send_message(g["post_channel"], get_template("end_notice").format(title=title))
             save_temp_msg(gid, m_end.message_id)
         except TelegramBadRequest as e:
             log.warning("End notice error: %s", e)
 
-        users = list(eligible(gid))
+        raw_users = list(eligible(gid))
+        # بررسی نهایی ضد لفت (Anti-Left Check) در لحظه قرعه‌کشی
+        users = []
+        for u in raw_users:
+            miss = await missing_channels(bot, gid, u["user_id"])
+            if not miss:
+                users.append(u)
+
         prizes = [p for p in (g["prizes"] or "").split("|") if p.strip()] or ["—"]
         prize_codes = [c.strip() for c in (g["prize_codes"] or "").split("|") if c.strip()]
 
@@ -629,10 +632,6 @@ async def finish_giveaway(bot: Bot, gid: int):
                 pick = by_uid.get(pick_uid)
                 if not pick:
                     continue
-                miss = await missing_channels(bot, gid, pick_uid)
-                if miss:
-                    log.info("reroll uid=%s left=%s", pick_uid, miss)
-                    continue
                 winners.append(pick)
 
         ids = ",".join(str(u["user_id"]) for u in users)
@@ -654,7 +653,6 @@ async def finish_giveaway(bot: Bot, gid: int):
         # پاکسازی پیام‌های موقت کانال
         await cleanup_temp_msgs(bot, gid, g["post_channel"])
 
-        # ارسال پیام نهایی نتایج برندگان
         try:
             await bot.send_message(g["post_channel"], text)
         except TelegramBadRequest as e:
@@ -837,7 +835,15 @@ async def start(m: Message, command: CommandObject, bot: Bot):
 
     if is_admin(m.from_user.id):
         return await m.answer(PANEL_TEXT, reply_markup=panel_kb())
-    await m.answer(t(m.from_user.id, "welcome"))
+    
+    # ظاهر مدرن بخش خوش‌آمدگویی کاربر
+    welcome_msg = (
+        f"👋 <b>سلام {html.escape(m.from_user.full_name)} عزیز، خوش آمدید!</b>\n\n"
+        f"🚀 شما وارد پلتفرم هوشمند <b>Nobody Giveaway</b> شدید.\n"
+        f"از طریق این ربات می‌توانید در رقابت‌های بزرگ شرکت کنید، شانس خود را چند برابر کنید و از جوایز ارزنده بهره‌مند شوید.\n\n"
+        f"💎 <i>امنیت بالا • شفافیت کامل • بدون تقلب</i>"
+    )
+    await m.answer(welcome_msg)
 
 
 @user_router.message(F.contact)
@@ -923,16 +929,18 @@ async def top_cb(cb: CallbackQuery):
 # =====================================================
 #                       ادمین
 # =====================================================
-PANEL_TEXT = "🎛 <b>پنل مدیریت و کنترل پیشرفته قرعه‌کشی‌ها</b>"
-
+PANEL_TEXT = (
+    "🎛 <b>مرکز فرماندهی Nobody Ultimate</b>\n"
+    "💎 <i>سیستم هوشمند مدیریت و اجرای قرعه‌کشی‌های دیجیتال</i>\n\n"
+    "👇 لطفاً از منوی زیر یکی از گزینه‌ها را انتخاب کنید:"
+)
 
 def panel_kb():
     return kb(
-        [btn("➕ ساخت قرعه‌کشی جدید", callback_data="adm:new")],
-        [btn("📋 لیست قرعه‌کشی‌های فعال", callback_data="adm:list")],
-        [btn("📝 تنظیمات متون کانال", callback_data="adm:tpl")],
-        [btn("📢 همگانی (Broadcast)", callback_data="adm:bc")],
-        [btn("📊 آمار و گزارش کل", callback_data="adm:stats")],
+        [btn("✨ ➕ ایجاد قرعه‌کشی جدید", callback_data="adm:new")],
+        [btn("📊 📋 لیست قرعه‌کشی‌ها", callback_data="adm:list"), btn("📝 ⚙️ تنظیمات متون", callback_data="adm:tpl")],
+        [btn("📢 🚀 ارسال پیام همگانی (Broadcast)", callback_data="adm:bc")],
+        [btn("📈 📊 آمار و تحلیل کل سیستم", callback_data="adm:stats")],
     )
 
 
